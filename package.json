@@ -1,0 +1,15 @@
+{
+  "name": "kachuful-monorepo",
+  "version": "1.0.0",
+  "description": "Kachuful Judgement card game multiplayer web application",
+  "private": true,
+  "scripts": {
+    "install:all": "npm install && npm install --prefix server && npm install --prefix client --legacy-peer-deps",
+    "server": "npm run start --prefix server",
+    "client": "npm run dev --prefix client",
+    "dev": "concurrently \"npm run server\" \"npm run client\""
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}

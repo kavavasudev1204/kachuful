@@ -1,0 +1,51 @@
+import express from "express";
+import { createServer } from "http";
+import { Server } from "socket.io";
+import cors from "cors";
+import dotenv from "dotenv";
+import registerSocketHandlers from "./socket/socketHandler.js";
+
+// Load environment variables
+dotenv.config();
+
+const app = express();
+const PORT = process.env.PORT || 5000;
+
+// Enable CORS
+app.use(cors({
+  origin: "*", // Allow all origins for easier testing/development
+  methods: ["GET", "POST"]
+}));
+
+app.use(express.json());
+
+// Basic Health Check Endpoint
+app.get("/health", (req, res) => {
+  res.status(200).json({ status: "healthy", game: "Kachuful (Judgement)" });
+});
+
+const httpServer = createServer(app);
+
+// Initialize Socket.IO Server
+const io = new Server(httpServer, {
+  cors: {
+    origin: "*",
+    methods: ["GET", "POST"]
+  }
+});
+
+// Register Socket events
+registerSocketHandlers(io);
+
+// Optional MongoDB Atlas setup (Fallback to in-memory)
+const mongoUri = process.env.MONGODB_URI;
+if (mongoUri) {
+  console.log("[Server] MONGODB_URI detected. (Optional match history backend can be initialized here)");
+} else {
+  console.log("[Server] No MONGODB_URI provided. Running purely with In-Memory room management.");
+}
+
+// Start Server explicitly binding to all network interfaces
+httpServer.listen(PORT, "0.0.0.0", () => {
+  console.log(`[Server] Kachuful Server running on port ${PORT} (exposing to local network on http://10.41.34.76:${PORT})`);
+});
