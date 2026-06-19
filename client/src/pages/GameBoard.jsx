@@ -139,20 +139,20 @@ export default function GameBoard({ onNavigate }) {
   // Portrait Lock Overlay
   if (isPortrait) {
     return (
-      <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[9999] flex flex-col justify-center items-center text-center p-6 text-slate-100 select-none">
+      <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-xl z-[9999] flex flex-col justify-center items-center text-center p-6 text-slate-100 select-none">
         <motion.div
-          animate={{ rotate: [0, 90, 90, 0, 0] }}
-          transition={{ repeat: Infinity, duration: 2.5, ease: "easeInOut", times: [0, 0.4, 0.6, 1, 1] }}
+          animate={{ rotate: [0, 360] }}
+          transition={{ repeat: Infinity, duration: 3, ease: "linear" }}
           className="w-20 h-20 bg-slate-900 border border-slate-800 text-amber-500 rounded-3xl flex items-center justify-center mb-6 shadow-xl"
         >
-          <RefreshCw className="w-10 h-10" />
+          <span className="text-4xl">🔄</span>
         </motion.div>
-        <h2 className="text-xl font-extrabold text-slate-200 tracking-wider mb-2 uppercase">Landscape Required</h2>
-        <p className="text-slate-400 text-sm max-w-xs mb-1 font-medium">
-          Please rotate your device to Landscape Mode
+        <h2 className="text-xl font-extrabold text-slate-200 tracking-wider mb-2 uppercase">🔄 Rotate Device</h2>
+        <p className="text-amber-500 text-sm max-w-xs mb-1 font-bold">
+          Landscape Mode Required
         </p>
-        <span className="text-amber-500 text-lg font-black mt-2 tracking-widest animate-pulse">
-          🡺 Landscape Required
+        <span className="text-slate-400 text-xs mt-2 tracking-wide">
+          Please rotate your device to continue playing.
         </span>
       </div>
     );
@@ -361,8 +361,8 @@ export default function GameBoard({ onNavigate }) {
     const angle = angles[idx % N];
     const rad = (angle * Math.PI) / 180;
     return {
-      x: 55 * Math.cos(rad),
-      y: 55 * Math.sin(rad),
+      x: 40 * Math.cos(rad),
+      y: 40 * Math.sin(rad),
       rotate: ((idx * 6) % 14) - 7
     };
   };
@@ -436,10 +436,10 @@ export default function GameBoard({ onNavigate }) {
   };
 
   // Card dimensions ratios
-  const widthClass = "w-[85px] sm:w-[120px]";
-  const heightClass = "h-[120px] sm:h-[170px]";
-  const tableWidthClass = "w-[55px] sm:w-[75px]";
-  const tableHeightClass = "h-[80px] sm:h-[110px]";
+  const widthClass = accessibilityMode ? "w-[110px]" : "w-[90px]";
+  const heightClass = accessibilityMode ? "h-[160px]" : "h-[130px]";
+  const tableWidthClass = "w-[70px]";
+  const tableHeightClass = "h-[100px]";
 
   // Fan calculations
   const getFanStyle = (idx, total) => {
@@ -525,6 +525,24 @@ export default function GameBoard({ onNavigate }) {
     );
   };
 
+  const renderTrumpTextRepresentation = (suit) => {
+    const isRed = suit === "HEART" || suit === "DIAMOND";
+    const suitName = suit === "HEART" ? "♠ HEART" : suit === "DIAMOND" ? "♦ DIAMOND" : suit === "SPADE" ? "♠ SPADE" : "♣ CLUB";
+    if (isRed) {
+      return (
+        <span className="text-red-500 font-black text-xs flex items-center justify-center gap-1 leading-none">
+          <span className="uppercase tracking-tight text-[11px] font-sans font-extrabold">{suitName}</span>
+        </span>
+      );
+    } else {
+      return (
+        <span className="bg-white text-slate-950 font-black px-2 py-0.5 rounded border border-slate-300 text-[10px] flex items-center justify-center gap-1 leading-none shadow-sm">
+          <span className="uppercase tracking-wider font-sans font-extrabold">{suitName}</span>
+        </span>
+      );
+    }
+  };
+
   const winningPlay = determineTrickWinner({ playedCards, activeTrump: trump });
   const deckSize = gameState.deck?.length ?? (52 - (N * round));
 
@@ -535,13 +553,13 @@ export default function GameBoard({ onNavigate }) {
       <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-indigo-950/15 rounded-full blur-[100px] pointer-events-none" />
 
       {/* Top HUD */}
-      <div className="w-full px-4 py-3 bg-slate-900/60 border-b border-slate-900/60 flex justify-between items-center z-20">
+      <div className="w-full px-6 py-2 bg-slate-900/60 border-b border-slate-900/60 flex justify-between items-center z-20">
         <div className="flex items-center gap-3">
           <button
             onClick={handleExitGame}
-            className="px-3 py-1.5 bg-slate-800 hover:bg-slate-750 text-slate-350 hover:text-slate-100 rounded-xl text-xs font-bold transition-all outline-none"
+            className="px-3 py-1.5 bg-slate-800 hover:bg-slate-750 text-slate-300 hover:text-slate-100 rounded-xl text-xs font-bold transition-all outline-none"
           >
-            EXIT GAME
+            ← Exit Room
           </button>
           <div className="flex flex-col text-[10px] tracking-wide text-slate-500 font-bold uppercase">
             <span>Room Code</span>
@@ -549,41 +567,41 @@ export default function GameBoard({ onNavigate }) {
           </div>
         </div>
 
-        {/* Round information */}
-        <div className="flex items-center gap-4">
-          <div className="flex flex-col items-center">
-            <span className="text-[10px] text-slate-500 font-bold uppercase">Round</span>
-            <span className="text-amber-500 font-extrabold text-sm">
-              {round} / {maxRounds}
-            </span>
-          </div>
-          <div className="flex flex-col items-center bg-slate-950/60 px-3 py-1 rounded-xl border border-slate-800/80">
-            <span className="text-[10px] text-slate-500 font-bold uppercase">Trump</span>
-            <span className={`text-base font-extrabold flex items-center gap-1.5 ${trump === "HEART" || trump === "DIAMOND" ? "text-red-500" : "text-slate-350"}`}>
-              {renderSuitIcon(trump, "w-4.5 h-4.5")}
-              {accessibilityMode && <span className="text-xs uppercase text-slate-400 font-medium">({trump.substring(0, 5)})</span>}
-            </span>
-          </div>
+        {/* Top Center: KACHUFUL */}
+        <div className="text-center">
+          <span className="text-sm font-black tracking-[0.25em] text-amber-500 uppercase drop-shadow-md">
+            KACHUFUL
+          </span>
         </div>
 
-        {/* Mute and Chat */}
+        {/* Top Right: Sound & Settings */}
         <div className="flex items-center gap-2">
           <button
             onClick={handleToggleMute}
-            className="p-2 bg-slate-800 hover:bg-slate-750 text-slate-200 rounded-xl transition-all outline-none"
-            aria-label={muted ? "Unmute sounds" : "Mute sounds"}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-750 text-slate-200 rounded-xl text-xs font-bold transition-all outline-none"
           >
-            {muted ? <VolumeX className="w-4 h-4 text-red-400" /> : <Volume2 className="w-4 h-4 text-emerald-400" />}
+            {muted ? "🔇 Sound" : "🔊 Sound"}
+          </button>
+
+          <button
+            onClick={toggleAccessibilityMode}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+              accessibilityMode
+                ? "bg-amber-500 text-slate-950 shadow-md"
+                : "bg-slate-800 text-slate-300 hover:text-slate-200"
+            }`}
+          >
+            ⚙ Settings
           </button>
 
           <button
             onClick={() => setShowChat(!showChat)}
-            className="p-2 bg-slate-800 hover:bg-slate-750 text-slate-200 rounded-xl relative transition-all outline-none"
+            className="p-1.5 bg-slate-800 hover:bg-slate-750 text-slate-200 rounded-xl relative transition-all outline-none"
             aria-label="Toggle chat log"
           >
             <MessageSquare className="w-4 h-4" />
             {chats.length > 0 && (
-              <span className="absolute -top-1 -right-1 w-4 h-4 bg-amber-500 text-slate-950 text-[9px] font-extrabold rounded-full flex justify-center items-center">
+              <span className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-amber-500 text-slate-950 text-[9px] font-extrabold rounded-full flex justify-center items-center">
                 {chats.length}
               </span>
             )}
@@ -648,7 +666,7 @@ export default function GameBoard({ onNavigate }) {
            </AnimatePresence>
 
         {/* Table Container wrapper that doesn't hide overflow */}
-        <div className="relative w-[50vh] h-[50vh] max-w-[340px] max-h-[340px] flex justify-center items-center my-4 z-10">
+        <div className="responsive-table-container relative flex justify-center items-center my-2 z-10">
           {/* Circular Table Felt with Weave Felt Texture */}
           <div className="w-full h-full rounded-full border-[10px] border-amber-800 shadow-[inset_0_0_60px_rgba(0,0,0,0.92),_0_15px_35px_rgba(0,0,0,0.65),_0_0_35px_rgba(59,130,246,0.3)] ring-4 ring-amber-500/25 relative flex justify-center items-center overflow-hidden"
                style={{ background: "radial-gradient(circle, #0e3557 0%, #051629 100%)" }}
@@ -677,14 +695,6 @@ export default function GameBoard({ onNavigate }) {
               <span className="text-[8px] font-black uppercase text-slate-400 tracking-wider bg-slate-950/80 px-1.5 py-0.5 rounded-full border border-slate-900">
                 {deckSize} Cards
               </span>
-            </div>
-
-            {/* Trump Card Showcase */}
-            <div className="absolute right-[7%] top-1/2 transform -translate-y-1/2 flex flex-col items-center gap-1 z-20 pointer-events-none select-none">
-              <span className="text-[8px] font-black uppercase text-amber-500 tracking-wider bg-slate-950/80 px-1.5 py-0.5 rounded-full border border-slate-900">
-                Trump
-              </span>
-              {renderTrumpCard(trump, false)}
             </div>
 
             {/* Card pile with spring landing and shrink offset */}
@@ -827,17 +837,30 @@ export default function GameBoard({ onNavigate }) {
             );
           })}
         </div>
+
+        {/* Bottom Right Trump Panel */}
+        <div className="absolute right-6 bottom-[1vh] z-30 pointer-events-none select-none">
+          <div className="glass-panel px-4 py-2 rounded-2xl border border-slate-800/80 flex flex-col items-center gap-1 shadow-lg text-center min-w-[110px]">
+            <span className="text-[9px] text-slate-500 font-extrabold uppercase tracking-wider">ROUND</span>
+            <span className="text-amber-500 font-black text-xs leading-none">
+              {round} / {maxRounds}
+            </span>
+            <div className="w-8 h-[1px] bg-slate-800/85 my-1" />
+            <span className="text-[9px] text-slate-500 font-extrabold uppercase tracking-wider">TRUMP</span>
+            {renderTrumpTextRepresentation(trump)}
+          </div>
+        </div>
       </div>
 
       {/* Hand area fanning */}
-      <div className={`w-full bg-slate-900/30 border-t border-slate-900/60 pb-8 pt-4 px-4 relative ${phase === "bidding" ? "z-50" : "z-20"}`}>
+      <div className={`w-full h-[18vh] max-h-[18vh] bg-slate-900/30 border-t border-slate-900/60 py-2 px-4 relative ${phase === "bidding" ? "z-50" : "z-20"}`}>
         
-        <div className="max-w-md mx-auto flex justify-between items-center mb-3 text-xs font-bold text-slate-400 select-none">
+        <div className="max-w-md mx-auto flex justify-between items-center mb-1 text-[10px] font-bold text-slate-500 select-none">
           <span>YOUR CARDS ({myHand.length})</span>
         </div>
 
         {/* Fanned arc dealing with 3D spring flips */}
-        <div className="w-full max-w-[95vw] sm:max-w-xl h-[150px] sm:h-[190px] mx-auto relative flex justify-center items-end py-4 overflow-visible">
+        <div className="w-full max-w-[95vw] sm:max-w-xl h-full mx-auto relative flex justify-center items-end pb-2 overflow-visible">
           {myHand.map((card, idx) => {
             const fan = getFanStyle(idx, myHand.length);
             const playable = isCardPlayable(card);
@@ -1055,7 +1078,7 @@ export default function GameBoard({ onNavigate }) {
               initial={{ scale: 0.95 }}
               animate={{ scale: 1 }}
               exit={{ scale: 0.95 }}
-              className="w-full max-w-lg glass-panel p-6 rounded-3xl border border-slate-800 shadow-2xl flex flex-col gap-4 max-h-[90vh] overflow-y-auto no-scrollbar"
+              className="w-[90vw] max-w-[1100px] glass-panel p-6 rounded-3xl border border-slate-800 shadow-2xl flex flex-col gap-4 max-h-[90vh] overflow-y-auto no-scrollbar"
             >
               <div className="text-center">
                 <h2 className="text-xl font-black text-amber-500 tracking-widest uppercase">

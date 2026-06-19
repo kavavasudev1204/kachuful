@@ -94,3 +94,38 @@
 .playable-card-pulse {
   animation: playable-card-pulse-glow 1.8s infinite ease-in-out;
 }
+
+/* Global scroll lock constraints */
+html,
+body,
+#root {
+  width: 100vw !important;
+  height: 100vh !important;
+  overflow: hidden !important;
+}
+
+/* Dynamic responsive circular felt table size */
+.responsive-table-container {
+  width: 70vh;
+  height: 70vh;
+  max-width: 70vh;
+  max-height: 70vh;
+}
+
+@media (max-width: 1024px) {
+  .responsive-table-container {
+    width: 65vh;
+    height: 65vh;
+    max-width: 65vh;
+    max-height: 65vh;
+  }
+}
+
+@media (max-width: 768px), (max-height: 500px) {
+  .responsive-table-container {
+    width: 55vh;
+    height: 55vh;
+    max-width: 55vh;
+    max-height: 55vh;
+  }
+}
