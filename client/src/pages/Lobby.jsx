@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { useGameStore } from "../store/gameStore";
 import { Copy, Share2, LogOut, Shield, Crown, Trash2, Sliders, ToggleLeft, ToggleRight, Check } from "lucide-react";
+import { socket } from "../socket/socket";
 
 export default function Lobby({ onNavigate }) {
   const {
@@ -13,8 +14,7 @@ export default function Lobby({ onNavigate }) {
     startGameOnline,
     leaveRoomOnline,
     errorMessage,
-    clearError,
-    accessibilityMode
+    clearError
   } = useGameStore();
 
   const [copied, setCopied] = useState(false);
@@ -26,12 +26,14 @@ export default function Lobby({ onNavigate }) {
 
   // Extra verification logs for same network connection checks
   useEffect(() => {
-    console.log("[Lobby Verification] Socket ID (socket.id):", myPlayerId);
+    console.log("[Lobby Verification] Socket ID (socket.id):", myPlayerId || socket.id);
     console.log("[Lobby Verification] Room Code (roomCode):", roomCode);
     console.log("[Lobby Verification] Players list (players):", players);
   }, [myPlayerId, roomCode, players]);
 
-  const isHost = myPlayerId === hostId;
+  // Use state's myPlayerId, falling back to active socket.id if needed
+  const activeMyPlayerId = myPlayerId || socket.id;
+  const isHost = activeMyPlayerId === hostId;
 
   // Calculate maximum allowed rounds based on active player count
   const maxAllowedRounds = players.length > 0 ? Math.floor(52 / players.length) : 13;
@@ -70,29 +72,8 @@ export default function Lobby({ onNavigate }) {
   };
 
   const handleKickPlayer = (playerId) => {
-    // We send a leave-room like kick via custom event or handle via socket
-    // In our backend handler, we can listen for a kick or let host request leave-room for socket.id
-    // To make it simple, let's emit a socket message 'leave-room' passing target playerId, or use standard leave-room logic.
-    // Wait! In socketHandler.js, leave-room takes socket.id to remove them. If host wants to remove another player:
-    // We should implement a "kick-player" client socket emit!
-    // Let's check: did the spec have a 'kick-player' socket event?
-    // The spec lists client events: leave-room, change-name, etc. It does not list kick-player, but host-permissions say "Remove Player".
-    // We can emit socket event 'leave-room' with target playerId (if host), or let's add socket support or simulate it.
-    // Wait, let's implement kicking. We can update socketHandler to support remove-player. In socketHandler we can check:
-    // `socket.on("remove-player", ({ roomCode, targetPlayerId }) => { ... })`
-    // Wait, since we already wrote `socketHandler.js`, does it support remove-player? It has a `leave-room` handler which removes `socket.id`.
-    // Let's modify `socketHandler.js` to add a `kick-player` event!
-    // Let's look at `socketHandler.js` to see if we can add a listener or let's just make it simple.
-    // Yes! Let's edit `socket/socketHandler.js` to add a handler for `remove-player`!
-    // Wait, let's check what socket events we have.
-    // Yes! We will add a socket emit for kicking and register it on the server.
-    // Let's write the frontend action for `kickPlayer(targetId)` which emits `remove-player`.
-    // Wait, let's check if the client can do it. Yes, we can add a custom emit: `socket.emit("remove-player", { roomCode, targetPlayerId })`.
-    // Let's add it to the server socketHandler later, but first write Lobby layout.
-    const { roomCode: code } = useGameStore.getState();
-    import("../socket/socket").then(({ socket }) => {
-      socket.emit("leave-room", { roomCode: code, targetPlayerId: playerId });
-    });
+    // Emit leave-room passing targetPlayerId, which server now supports
+    socket.emit("leave-room", { roomCode, targetPlayerId: playerId });
   };
 
   const handleStartGame = () => {
@@ -117,193 +98,218 @@ export default function Lobby({ onNavigate }) {
     changeSettingsOnline({ enableLastBidRestriction: !settings.enableLastBidRestriction });
   };
 
-  return (
-    <div className="min-h-screen flex flex-col justify-between py-8 px-4 bg-slate-950 relative overflow-hidden select-none">
-      {/* Background decorations */}
-      <div className="absolute top-[-20%] left-[-10%] w-[50%] h-[50%] bg-blue-900/10 rounded-full blur-[120px]" />
-      <div className="absolute bottom-[-20%] right-[-10%] w-[50%] h-[50%] bg-amber-950/10 rounded-full blur-[120px]" />
+  // Helper to generate a unique gradient based on player name
+  const getAvatarGradient = (name) => {
+    const hash = name.split("").reduce((acc, char) => acc + char.charCodeAt(0), 0);
+    const gradients = [
+      "from-pink-500 to-rose-500",
+      "from-purple-500 to-indigo-500",
+      "from-blue-500 to-cyan-500",
+      "from-emerald-500 to-teal-500",
+      "from-amber-500 to-orange-500",
+      "from-red-500 to-rose-600"
+    ];
+    return gradients[hash % gradients.length];
+  };
 
-      <div className="w-full max-w-lg mx-auto flex flex-col gap-6 my-auto">
+  return (
+    <div className="h-screen max-h-screen flex flex-col justify-between bg-slate-950 relative overflow-hidden select-none">
+      {/* Background decorations */}
+      <div className="absolute top-[-20%] left-[-10%] w-[50%] h-[50%] bg-blue-900/10 rounded-full blur-[120px] pointer-events-none" />
+      <div className="absolute bottom-[-20%] right-[-10%] w-[50%] h-[50%] bg-amber-950/10 rounded-full blur-[120px] pointer-events-none" />
+
+      {/* Main Content Area */}
+      <div className="flex-1 flex flex-col px-4 pt-4 md:px-8 md:pt-6 overflow-hidden max-w-5xl mx-auto w-full">
         {/* Header */}
-        <div className="text-center">
-          <h1 className="text-3xl font-extrabold tracking-widest text-amber-500">
+        <div className="text-center mb-3">
+          <h1 className="text-2xl font-extrabold tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-amber-400 to-amber-500">
             ROOM LOBBY
           </h1>
-          <p className="text-slate-500 text-xs tracking-wider mt-1">
-            WAITING IN ROOM FOR PLAYERS
+          <p className="text-slate-500 text-[10px] tracking-wider uppercase font-medium">
+            Waiting in room for players
           </p>
         </div>
 
         {/* Error notification */}
         {errorMessage && (
-          <div className="w-full p-4 rounded-xl border border-red-500/20 bg-red-950/30 text-red-200 text-sm flex justify-between items-center">
+          <div className="w-full mb-3 p-2.5 rounded-xl border border-red-500/20 bg-red-950/30 text-red-200 text-xs flex justify-between items-center z-10">
             <span>{errorMessage}</span>
-            <button onClick={clearError} className="font-bold text-red-400">✕</button>
+            <button onClick={clearError} className="font-bold text-red-400 ml-2">✕</button>
           </div>
         )}
 
-        {/* Info panel */}
-        <div className="glass-panel p-6 rounded-3xl border border-slate-800 shadow-xl flex flex-col gap-6">
-          {/* Invite Code */}
-          <div className="bg-slate-900/80 border border-slate-800 p-4 rounded-2xl text-center relative">
-            <span className="block text-slate-500 text-[10px] font-bold tracking-widest uppercase mb-1">
-              INVITE CODE
-            </span>
-            <span className="block text-3xl font-extrabold tracking-widest text-slate-100 mb-4 select-all">
-              {roomCode}
-            </span>
-            <div className="flex gap-2 justify-center">
-              <button
-                onClick={handleCopyCode}
-                className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition-all outline-none accessibility-focus ${
-                  copied
-                    ? "bg-emerald-500 text-emerald-950 shadow-md shadow-emerald-500/20"
-                    : "bg-slate-800 text-slate-200 hover:bg-slate-750"
-                }`}
-              >
-                {copied ? (
-                  <>
-                    <Check className="w-3.5 h-3.5" /> COPIED
-                  </>
-                ) : (
-                  <>
-                    <Copy className="w-3.5 h-3.5" /> COPY CODE
-                  </>
-                )}
-              </button>
-              <button
-                onClick={handleShare}
-                className="flex items-center gap-1.5 px-4 py-2 bg-amber-500 hover:bg-amber-450 text-slate-950 rounded-xl text-xs font-bold transition-all outline-none accessibility-focus"
-              >
-                <Share2 className="w-3.5 h-3.5" /> SHARE CODE
-              </button>
-            </div>
-          </div>
-
-          {/* Settings Section (Host editable, player read-only) */}
-          <div className="border-t border-slate-850 pt-4 flex flex-col gap-4">
-            <h3 className="text-slate-400 text-xs font-bold tracking-wider flex items-center gap-1.5">
-              <Sliders className="w-3.5 h-3.5 text-amber-500" /> GAME SETTINGS
-            </h3>
-
-            {/* Score Mode */}
-            <div className="flex justify-between items-center gap-4 bg-slate-900/40 p-3 rounded-xl border border-slate-900">
-              <div>
-                <span className="block text-xs font-bold text-slate-200">Score Calculation</span>
-                <span className="text-[10px] text-slate-500">
-                  {settings.scoreMode === "ADD_10" ? "Guess = Won (10 + Won), Else 0" : "Guess = Won (Won * 10), Else 0"}
-                </span>
+        {/* Two Column Grid */}
+        <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-4 overflow-hidden mb-4">
+          {/* Left Column: Room Info & Settings */}
+          <div className="flex flex-col gap-3 overflow-y-auto no-scrollbar max-h-[48vh] md:max-h-none">
+            {/* Invite Panel */}
+            <div className="glass-panel p-3.5 rounded-2xl border border-slate-800 shadow-lg flex flex-col gap-2">
+              <span className="block text-slate-500 text-[9px] font-bold tracking-widest uppercase">
+                INVITE CODE
+              </span>
+              <span className="block text-2xl font-black tracking-widest text-slate-100 uppercase select-all">
+                {roomCode}
+              </span>
+              <div className="flex gap-2 mt-1">
+                <button
+                  onClick={handleCopyCode}
+                  className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-[11px] font-bold transition-all outline-none accessibility-focus ${
+                    copied
+                      ? "bg-emerald-500 text-emerald-950"
+                      : "bg-slate-850 text-slate-200 hover:bg-slate-800"
+                  }`}
+                >
+                  {copied ? (
+                    <>
+                      <Check className="w-3.5 h-3.5" /> COPIED
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-3.5 h-3.5" /> COPY CODE
+                    </>
+                  )}
+                </button>
+                <button
+                  onClick={handleShare}
+                  className="flex-1 flex items-center justify-center gap-1.5 py-1.5 bg-amber-500 hover:bg-amber-450 text-slate-950 rounded-lg text-[11px] font-bold transition-all outline-none accessibility-focus"
+                >
+                  <Share2 className="w-3.5 h-3.5" /> SHARE CODE
+                </button>
               </div>
-              {isHost ? (
-                <div className="flex bg-slate-950 p-1 rounded-lg border border-slate-800">
-                  <button
-                    onClick={() => handleScoreModeChange("ADD_10")}
-                    className={`px-3 py-1 rounded-md text-[10px] font-bold tracking-wider transition-all ${
-                      settings.scoreMode === "ADD_10"
-                        ? "bg-amber-500 text-slate-950"
-                        : "text-slate-400 hover:text-slate-200"
-                    }`}
-                  >
-                    +10 HANDS
-                  </button>
-                  <button
-                    onClick={() => handleScoreModeChange("MULTIPLY_10")}
-                    className={`px-3 py-1 rounded-md text-[10px] font-bold tracking-wider transition-all ${
-                      settings.scoreMode === "MULTIPLY_10"
-                        ? "bg-amber-500 text-slate-950"
-                        : "text-slate-400 hover:text-slate-200"
-                    }`}
-                  >
-                    ×10 HANDS
-                  </button>
+            </div>
+
+            {/* Game Settings */}
+            <div className="glass-panel p-3.5 rounded-2xl border border-slate-800 shadow-lg flex flex-col gap-2.5">
+              <h3 className="text-slate-400 text-[10px] font-bold tracking-wider flex items-center gap-1.5">
+                <Sliders className="w-3.5 h-3.5 text-amber-500" /> GAME SETTINGS
+              </h3>
+
+              {/* Score Mode */}
+              <div className="flex justify-between items-center gap-3 bg-slate-900/40 p-2.5 rounded-xl border border-slate-900">
+                <div className="flex-1">
+                  <span className="block text-xs font-bold text-slate-200">Score Calculation</span>
+                  <span className="text-[9px] text-slate-500 leading-tight block">
+                    {settings.scoreMode === "ADD_10" ? "Guess = Won (10 + Won), Else 0" : "Guess = Won (Won * 10), Else 0"}
+                  </span>
                 </div>
-              ) : (
-                <span className="text-xs font-bold text-amber-500">
-                  {settings.scoreMode === "ADD_10" ? "ADD 10" : "MULTIPLY 10"}
-                </span>
-              )}
-            </div>
-
-            {/* Rounds */}
-            <div className="flex justify-between items-center gap-4 bg-slate-900/40 p-3 rounded-xl border border-slate-900">
-              <div>
-                <span className="block text-xs font-bold text-slate-200">Total Rounds</span>
-                <span className="text-[10px] text-slate-500">
-                  Players ({players.length}) × Rounds ({settings.maxRounds}) must be ≤ 52. Max: {maxAllowedRounds}
-                </span>
+                {isHost ? (
+                  <div className="flex bg-slate-950 p-0.5 rounded-lg border border-slate-800 shrink-0">
+                    <button
+                      onClick={() => handleScoreModeChange("ADD_10")}
+                      className={`px-2.5 py-1 rounded-md text-[9px] font-extrabold tracking-wider transition-all ${
+                        settings.scoreMode === "ADD_10"
+                          ? "bg-amber-500 text-slate-950"
+                          : "text-slate-400 hover:text-slate-200"
+                      }`}
+                    >
+                      +10
+                    </button>
+                    <button
+                      onClick={() => handleScoreModeChange("MULTIPLY_10")}
+                      className={`px-2.5 py-1 rounded-md text-[9px] font-extrabold tracking-wider transition-all ${
+                        settings.scoreMode === "MULTIPLY_10"
+                          ? "bg-amber-500 text-slate-950"
+                          : "text-slate-400 hover:text-slate-200"
+                      }`}
+                    >
+                      ×10
+                    </button>
+                  </div>
+                ) : (
+                  <span className="text-[11px] font-extrabold text-amber-500 shrink-0">
+                    {settings.scoreMode === "ADD_10" ? "ADD 10" : "MULTIPLY 10"}
+                  </span>
+                )}
               </div>
-              {isHost ? (
-                <div className="flex items-center gap-2">
+
+              {/* Rounds */}
+              <div className="flex justify-between items-center gap-3 bg-slate-900/40 p-2.5 rounded-xl border border-slate-900">
+                <div className="flex-1">
+                  <span className="block text-xs font-bold text-slate-200">Total Rounds</span>
+                  <span className="text-[9px] text-slate-500 leading-tight block">
+                    Max allowed: {maxAllowedRounds} (Players: {players.length})
+                  </span>
+                </div>
+                {isHost ? (
                   <input
                     type="number"
                     min={1}
                     max={maxAllowedRounds}
                     value={settings.maxRounds}
                     onChange={(e) => handleRoundsChange(e.target.value)}
-                    className="w-16 bg-slate-950 border border-slate-800 rounded-lg py-1 px-2 text-center text-xs font-bold text-slate-100 focus:border-amber-500 outline-none"
+                    className="w-14 bg-slate-950 border border-slate-850 rounded-lg py-1 px-1.5 text-center text-xs font-bold text-slate-100 focus:border-amber-500 outline-none shrink-0"
                   />
-                </div>
-              ) : (
-                <span className="text-xs font-bold text-amber-500">{settings.maxRounds} Rounds</span>
-              )}
-            </div>
-
-            {/* Last Player Bid Restriction */}
-            <div className="flex justify-between items-center gap-4 bg-slate-900/40 p-3 rounded-xl border border-slate-900">
-              <div>
-                <span className="block text-xs font-bold text-slate-200">Last Player Restriction</span>
-                <span className="text-[10px] text-slate-500">Last bidder cannot make total bids sum equal cards dealt.</span>
+                ) : (
+                  <span className="text-[11px] font-extrabold text-amber-500 shrink-0">{settings.maxRounds} Rounds</span>
+                )}
               </div>
-              {isHost ? (
-                <button onClick={handleLastBidToggle} className="outline-none accessibility-focus rounded">
-                  {settings.enableLastBidRestriction ? (
-                    <ToggleRight className="w-8 h-8 text-amber-500" />
-                  ) : (
-                    <ToggleLeft className="w-8 h-8 text-slate-600" />
-                  )}
-                </button>
-              ) : (
-                <span className="text-xs font-bold text-amber-500">
-                  {settings.enableLastBidRestriction ? "ENABLED" : "DISABLED"}
-                </span>
-              )}
+
+              {/* Last Player Bid Restriction */}
+              <div className="flex justify-between items-center gap-3 bg-slate-900/40 p-2.5 rounded-xl border border-slate-900">
+                <div className="flex-1">
+                  <span className="block text-xs font-bold text-slate-200">Last Player Restriction</span>
+                  <span className="text-[9px] text-slate-500 leading-tight block">Last bidder's bid + other bids cannot equal rounds.</span>
+                </div>
+                {isHost ? (
+                  <button onClick={handleLastBidToggle} className="outline-none accessibility-focus rounded shrink-0">
+                    {settings.enableLastBidRestriction ? (
+                      <ToggleRight className="w-8 h-8 text-amber-500" />
+                    ) : (
+                      <ToggleLeft className="w-8 h-8 text-slate-600" />
+                    )}
+                  </button>
+                ) : (
+                  <span className="text-[11px] font-extrabold text-amber-500 shrink-0">
+                    {settings.enableLastBidRestriction ? "ENABLED" : "DISABLED"}
+                  </span>
+                )}
+              </div>
             </div>
           </div>
 
-          {/* Players List */}
-          <div className="border-t border-slate-850 pt-4 flex flex-col gap-2">
-            <span className="block text-slate-400 text-xs font-bold tracking-wider mb-2">
-              PLAYERS IN ROOM ({players.length})
+          {/* Right Column: Players List */}
+          <div className="glass-panel p-3.5 rounded-3xl border border-slate-800 flex flex-col gap-2 max-h-[48vh] md:max-h-none overflow-hidden">
+            <span className="block text-slate-400 text-[10px] font-bold tracking-wider uppercase border-b border-slate-850 pb-1.5">
+              PLAYERS IN ROOM ({players.length}/6)
             </span>
-            <div className="flex flex-col gap-1.5 max-h-48 overflow-y-auto no-scrollbar pr-1">
-              {players.map((player) => (
+            <div className="flex-1 flex flex-col gap-2 overflow-y-auto no-scrollbar pr-1">
+              {players.map((player, index) => (
                 <div
                   key={player.id}
-                  className={`flex justify-between items-center p-3 rounded-xl border ${
-                    player.id === myPlayerId
-                      ? "bg-slate-900/70 border-amber-500/20"
-                      : "bg-slate-900/30 border-slate-850"
+                  className={`flex justify-between items-center p-2 rounded-2xl border transition-all ${
+                    player.id === activeMyPlayerId
+                      ? "bg-slate-900/80 border-amber-500/25 shadow-md shadow-amber-500/5"
+                      : "bg-slate-900/20 border-slate-850"
                   } ${!player.connected ? "opacity-50" : ""}`}
                 >
-                  <div className="flex items-center gap-2">
-                    {player.isHost ? (
-                      <Crown className="w-3.5 h-3.5 text-amber-500 fill-amber-500/10" />
-                    ) : (
-                      <Shield className="w-3.5 h-3.5 text-slate-500" />
-                    )}
-                    <span className={`text-xs font-semibold ${player.id === myPlayerId ? "text-amber-400 font-bold" : "text-slate-200"}`}>
-                      {player.name} {player.id === myPlayerId && "(You)"}
-                    </span>
-                    {!player.connected && (
-                      <span className="text-[9px] font-bold text-red-400 bg-red-950/20 border border-red-900/30 px-1.5 py-0.5 rounded-full">
-                        DISCONNECTED
+                  <div className="flex items-center gap-3">
+                    {/* Avatar Circle */}
+                    <div className="relative shrink-0 select-none">
+                      <div className={`w-9 h-9 flex items-center justify-center rounded-full bg-gradient-to-br ${getAvatarGradient(player.name)} text-white font-extrabold text-xs shadow-md`}>
+                        {player.name.charAt(0).toUpperCase()}
+                      </div>
+                      {player.isHost && (
+                        <div className="absolute -top-1.5 -right-1.5 bg-slate-950 rounded-full p-0.5 border border-amber-500">
+                          <Crown className="w-2.5 h-2.5 text-amber-400 fill-amber-500/20" />
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex flex-col">
+                      <span className={`text-xs font-bold flex items-center gap-1.5 ${player.id === activeMyPlayerId ? "text-amber-400 font-black" : "text-slate-200"}`}>
+                        {player.name} {player.id === activeMyPlayerId && "(You)"}
+                        {player.isHost && <span className="text-[8px] text-amber-500 bg-amber-500/10 border border-amber-500/20 px-1 rounded font-normal uppercase tracking-wider">Host</span>}
                       </span>
-                    )}
+                      <span className="text-[9px] text-slate-500 font-medium">
+                        {player.isBot ? "Computer Bot" : player.connected ? "Online" : "Disconnected"}
+                      </span>
+                    </div>
                   </div>
-                  {isHost && player.id !== myPlayerId && (
+
+                  {isHost && player.id !== activeMyPlayerId && (
                     <button
                       onClick={() => handleKickPlayer(player.id)}
-                      className="text-slate-500 hover:text-red-400 p-1 transition-all outline-none accessibility-focus"
+                      className="text-slate-500 hover:text-red-400 hover:bg-red-500/10 p-1.5 rounded-lg transition-all outline-none accessibility-focus shrink-0"
                       title="Kick Player"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
@@ -314,31 +320,43 @@ export default function Lobby({ onNavigate }) {
             </div>
           </div>
         </div>
+      </div>
 
-        {/* Controls */}
-        <div className="flex flex-col gap-3">
-          {isHost ? (
-            <button
-              onClick={handleStartGame}
-              disabled={players.length < 2}
-              className="w-full bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-450 hover:to-amber-550 disabled:from-slate-800 disabled:to-slate-800 disabled:text-slate-500 text-slate-950 font-extrabold py-3.5 px-4 rounded-xl shadow-lg shadow-amber-500/10 hover:shadow-amber-500/20 disabled:shadow-none transition-all duration-200 text-sm tracking-wider outline-none accessibility-focus"
-            >
-              START GAME
-            </button>
-          ) : (
-            <div className="text-center p-3 border border-slate-850 bg-slate-900/10 rounded-xl mb-1">
-              <span className="text-[11px] font-medium text-slate-400 animate-pulse">
-                Waiting for the host to start the game...
-              </span>
-            </div>
-          )}
+      {/* Sticky Footer */}
+      <div className="w-full bg-slate-950/90 border-t border-slate-900/60 backdrop-blur-md px-6 py-3.5 flex justify-between items-center gap-4 mt-auto z-10 shrink-0">
+        <div className="flex flex-col items-start gap-0.5">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-black text-amber-500 tracking-wider">
+              Players {players.length}/6
+            </span>
+            <div className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
+          </div>
+          <span className="text-[10px] text-slate-400 animate-pulse font-medium">
+            {players.length < 2
+              ? "Waiting for Players..."
+              : isHost
+              ? "Ready to Start Game"
+              : "Waiting for Host to start game..."}
+          </span>
+        </div>
 
+        <div className="flex items-center gap-3">
           <button
             onClick={handleLeaveLobby}
-            className="w-full bg-slate-900 hover:bg-slate-850 text-slate-350 hover:text-slate-200 font-bold py-3 px-4 border border-slate-800 hover:border-slate-700 rounded-xl transition-all duration-200 flex justify-center items-center gap-1.5 text-xs tracking-wider outline-none accessibility-focus"
+            className="flex items-center justify-center gap-1.5 px-4 py-2 bg-slate-900 hover:bg-slate-850 text-slate-350 hover:text-slate-200 border border-slate-800 hover:border-slate-700 rounded-xl text-xs font-bold transition-all outline-none accessibility-focus"
           >
             <LogOut className="w-3.5 h-3.5" /> LEAVE LOBBY
           </button>
+
+          {isHost && (
+            <button
+              onClick={handleStartGame}
+              disabled={players.length < 2}
+              className="bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-450 hover:to-amber-550 disabled:from-slate-800 disabled:to-slate-800 disabled:text-slate-500 text-slate-950 font-extrabold px-5 py-2 rounded-xl shadow-lg shadow-amber-500/10 hover:shadow-amber-500/20 disabled:shadow-none transition-all duration-200 text-xs tracking-wider outline-none accessibility-focus"
+            >
+              START GAME
+            </button>
+          )}
         </div>
       </div>
     </div>

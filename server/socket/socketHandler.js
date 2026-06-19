@@ -66,6 +66,7 @@ export default function registerSocketHandlers(io) {
             playerId: socket.id,
             playerName: name.trim()
           });
+          io.to(code).emit("room-updated", room);
           
           console.log(`[Socket] Player ${name} reconnected in Room ${code}`);
         } else {
@@ -74,6 +75,7 @@ export default function registerSocketHandlers(io) {
           socket.join(code);
           
           io.to(code).emit("player-joined", room);
+          io.to(code).emit("room-updated", room);
           console.log(`[Socket] Player ${name} joined Room ${code}`);
         }
       } catch (err) {
@@ -86,6 +88,7 @@ export default function registerSocketHandlers(io) {
       try {
         const room = changeRoomSettings(roomCode, socket.id, settings);
         io.to(roomCode.toUpperCase()).emit("settings-updated", room);
+        io.to(roomCode.toUpperCase()).emit("room-updated", room);
       } catch (err) {
         sendError("change-settings", err.message);
       }
@@ -107,6 +110,7 @@ export default function registerSocketHandlers(io) {
         
         // Also emit cards-dealt right after to indicate hand deals
         io.to(room.roomCode).emit("cards-dealt", room.gameState);
+        io.to(room.roomCode).emit("room-updated", room);
         
         console.log(`[Socket] Game started in Room ${room.roomCode}`);
       } catch (err) {
@@ -201,19 +205,40 @@ export default function registerSocketHandlers(io) {
       }
     });
 
-    // 8. LEAVE ROOM
-    socket.on("leave-room", ({ roomCode }) => {
+    // 8. LEAVE ROOM / KICK PLAYER
+    socket.on("leave-room", ({ roomCode, targetPlayerId }) => {
       try {
         const code = roomCode.toUpperCase();
-        const room = removePlayerFromRoom(code, socket.id);
+        const room = getRoom(code);
+        if (!room) return sendError("leave-room", "Room not found.");
+
+        let playerToRemoveId = socket.id;
+
+        // If targetPlayerId is specified, check if sender is host
+        if (targetPlayerId && targetPlayerId !== socket.id) {
+          if (room.hostId !== socket.id) {
+            return sendError("leave-room", "Only the host can kick players.");
+          }
+          playerToRemoveId = targetPlayerId;
+        }
+
+        const updatedRoom = removePlayerFromRoom(code, playerToRemoveId);
         
-        socket.leave(code);
+        // Find the socket of the player being removed and disconnect them from the channel
+        const targetSocket = io.sockets.sockets.get(playerToRemoveId);
+        if (targetSocket) {
+          targetSocket.leave(code);
+          if (playerToRemoveId !== socket.id) {
+            targetSocket.emit("room-closed", { message: "You have been kicked from the room." });
+          }
+        }
         
-        if (room) {
+        if (updatedRoom) {
           io.to(code).emit("player-left", {
-            room,
-            playerId: socket.id
+            room: updatedRoom,
+            playerId: playerToRemoveId
           });
+          io.to(code).emit("room-updated", updatedRoom);
         } else {
           io.to(code).emit("room-closed", { message: "Room closed. Host left or all players disconnected." });
         }
@@ -245,6 +270,7 @@ export default function registerSocketHandlers(io) {
             newName: player.name,
             playerId: socket.id
           });
+          io.to(code).emit("room-updated", room);
         }
       } catch (err) {
         sendError("change-name", err.message);
@@ -281,6 +307,7 @@ export default function registerSocketHandlers(io) {
           playerName: name,
           room
         });
+        io.to(room.roomCode).emit("room-updated", room);
       }
     });
   });

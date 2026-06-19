@@ -15,7 +15,7 @@ const LOCAL_PLAYER_ID = "local-player";
 
 export const useGameStore = create((set, get) => ({
   // Player Identification
-  playerName: localStorage.getItem("playerName") || "",
+  playerName: sessionStorage.getItem("playerName") || localStorage.getItem("playerName") || "",
   myPlayerId: "",
   isConnected: false,
   isOffline: false,
@@ -48,6 +48,7 @@ export const useGameStore = create((set, get) => ({
   
   setPlayerName: (name) => {
     localStorage.setItem("playerName", name);
+    sessionStorage.setItem("playerName", name);
     set({ playerName: name });
   },
   
@@ -92,12 +93,16 @@ export const useGameStore = create((set, get) => ({
   },
 
   registerSocketEvents: () => {
+    if (socket.id) {
+      set({ myPlayerId: socket.id });
+    }
     socket.off("connect");
     socket.off("disconnect");
     socket.off("room-created");
     socket.off("player-joined");
     socket.off("player-left");
     socket.off("settings-updated");
+    socket.off("room-updated");
     socket.off("game-started");
     socket.off("cards-dealt");
     socket.off("bid-placed");
@@ -118,7 +123,7 @@ export const useGameStore = create((set, get) => ({
     socket.on("connect", () => {
       set({ myPlayerId: socket.id, isConnected: true });
       // Auto-rejoin if we already have room details (e.g. socket briefly dropped and reconnected)
-      const currentRoomCode = get().roomCode;
+      const currentRoomCode = get().roomCode || sessionStorage.getItem("activeRoomCode");
       const currentName = get().playerName;
       if (currentRoomCode && currentName && !get().isOffline) {
         console.log(`[Socket] Re-connected. Auto-rejoining room: ${currentRoomCode} as ${currentName}`);
@@ -131,7 +136,7 @@ export const useGameStore = create((set, get) => ({
     });
 
     socket.on("room-created", (room) => {
-      localStorage.setItem("activeRoomCode", room.roomCode);
+      sessionStorage.setItem("activeRoomCode", room.roomCode);
       set({
         roomCode: room.roomCode,
         hostId: room.hostId,
@@ -145,7 +150,7 @@ export const useGameStore = create((set, get) => ({
     });
 
     socket.on("player-joined", (room) => {
-      localStorage.setItem("activeRoomCode", room.roomCode);
+      sessionStorage.setItem("activeRoomCode", room.roomCode);
       set({
         roomCode: room.roomCode,
         players: room.players,
@@ -165,6 +170,18 @@ export const useGameStore = create((set, get) => ({
 
     socket.on("settings-updated", (room) => {
       set({ settings: room.settings });
+    });
+
+    socket.on("room-updated", (room) => {
+      set({
+        roomCode: room.roomCode,
+        hostId: room.hostId,
+        hostName: room.hostName,
+        status: room.status,
+        players: room.players,
+        settings: room.settings,
+        gameState: room.gameState
+      });
     });
 
     socket.on("game-started", (gameState) => {
@@ -217,7 +234,7 @@ export const useGameStore = create((set, get) => ({
     });
 
     socket.on("player-reconnected", ({ room, playerId, playerName }) => {
-      localStorage.setItem("activeRoomCode", room.roomCode);
+      sessionStorage.setItem("activeRoomCode", room.roomCode);
       const isMe = playerName.toLowerCase() === get().playerName.toLowerCase();
       set({
         players: room.players,
@@ -229,7 +246,7 @@ export const useGameStore = create((set, get) => ({
     });
 
     socket.on("room-closed", ({ message }) => {
-      localStorage.removeItem("activeRoomCode");
+      sessionStorage.removeItem("activeRoomCode");
       set({
         roomCode: "",
         players: [],
@@ -323,7 +340,7 @@ export const useGameStore = create((set, get) => ({
       socket.emit("leave-room", { roomCode: code });
     }
     get().disconnectSocket();
-    localStorage.removeItem("activeRoomCode");
+    sessionStorage.removeItem("activeRoomCode");
     set({
       roomCode: "",
       players: [],

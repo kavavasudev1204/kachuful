@@ -10,27 +10,31 @@ const GameBoard = lazy(() => import("./pages/GameBoard"));
 const Result = lazy(() => import("./pages/Result"));
 
 export default function App() {
-  const { roomCode, accessibilityMode, setGameState, isOffline } = useGameStore();
+  const { roomCode, status, accessibilityMode, isOffline, connectSocket } = useGameStore();
   const navigate = useNavigate();
 
-  // Listen to game-started event to route to the board
+  // Connect socket on app mount
   useEffect(() => {
-    const handleGameStarted = (gameState) => {
-      setGameState(gameState);
-      navigate(`/game/${gameState.roomCode}`);
-    };
+    connectSocket();
+  }, [connectSocket]);
 
-    socket.on("game-started", handleGameStarted);
-
-    return () => {
-      socket.off("game-started", handleGameStarted);
-    };
-  }, [navigate, setGameState]);
-
-  // On mount, auto-rejoin if active room and name exist in storage
+  // Reactive routing based on game status and room code
   useEffect(() => {
-    const activeRoomCode = localStorage.getItem("activeRoomCode");
-    const playerName = localStorage.getItem("playerName");
+    if (!roomCode) {
+      navigate("/");
+    } else if (status === "playing") {
+      navigate(`/game/${roomCode}`);
+    } else if (status === "waiting") {
+      navigate("/lobby");
+    } else if (status === "finished") {
+      navigate("/result");
+    }
+  }, [roomCode, status, navigate]);
+
+  // On mount, auto-rejoin if active room and name exist in session/local storage
+  useEffect(() => {
+    const activeRoomCode = sessionStorage.getItem("activeRoomCode");
+    const playerName = sessionStorage.getItem("playerName") || localStorage.getItem("playerName");
     if (activeRoomCode && playerName && !isOffline) {
       const { joinRoomOnline, roomCode: currentRoom } = useGameStore.getState();
       if (!currentRoom) {
