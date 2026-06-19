@@ -1,17 +1,19 @@
-import React, { useEffect } from "react";
+import React, { useEffect, lazy, Suspense } from "react";
 import { Routes, Route, useNavigate, Navigate } from "react-router-dom";
 import { useGameStore } from "./store/gameStore";
 import { socket } from "./socket/socket";
-import Home from "./pages/Home";
-import Lobby from "./pages/Lobby";
-import GameBoard from "./pages/GameBoard";
-import Result from "./pages/Result";
+
+// Lazy load page components for bundle size optimization
+const Home = lazy(() => import("./pages/Home"));
+const Lobby = lazy(() => import("./pages/Lobby"));
+const GameBoard = lazy(() => import("./pages/GameBoard"));
+const Result = lazy(() => import("./pages/Result"));
 
 export default function App() {
-  const { roomCode, accessibilityMode, setGameState } = useGameStore();
+  const { roomCode, accessibilityMode, setGameState, isOffline } = useGameStore();
   const navigate = useNavigate();
 
-  // Listen to game-started event exactly as required
+  // Listen to game-started event to route to the board
   useEffect(() => {
     const handleGameStarted = (gameState) => {
       setGameState(gameState);
@@ -24,6 +26,19 @@ export default function App() {
       socket.off("game-started", handleGameStarted);
     };
   }, [navigate, setGameState]);
+
+  // On mount, auto-rejoin if active room and name exist in storage
+  useEffect(() => {
+    const activeRoomCode = localStorage.getItem("activeRoomCode");
+    const playerName = localStorage.getItem("playerName");
+    if (activeRoomCode && playerName && !isOffline) {
+      const { joinRoomOnline, roomCode: currentRoom } = useGameStore.getState();
+      if (!currentRoom) {
+        console.log(`[App Mount] Found active room session: ${activeRoomCode}. Auto-joining...`);
+        joinRoomOnline(activeRoomCode, playerName);
+      }
+    }
+  }, [isOffline]);
 
   // Accessibility toggle styling injection
   useEffect(() => {
@@ -48,13 +63,20 @@ export default function App() {
 
   return (
     <div className={`min-h-screen ${accessibilityMode ? "contrast-125" : ""}`}>
-      <Routes>
-        <Route path="/" element={<Home onNavigate={handleNavigate} />} />
-        <Route path="/lobby" element={<Lobby onNavigate={handleNavigate} />} />
-        <Route path="/game/:roomCode" element={<GameBoard onNavigate={handleNavigate} />} />
-        <Route path="/result" element={<Result onNavigate={handleNavigate} />} />
-        <Route path="*" element={<Navigate to="/" />} />
-      </Routes>
+      <Suspense fallback={
+        <div className="min-h-screen bg-slate-950 flex flex-col justify-center items-center text-slate-400 gap-3">
+          <div className="w-10 h-10 border-4 border-amber-500 border-t-transparent rounded-full animate-spin" />
+          <span className="text-xs font-black tracking-widest uppercase text-amber-500/80 animate-pulse">Loading Kachuful...</span>
+        </div>
+      }>
+        <Routes>
+          <Route path="/" element={<Home onNavigate={handleNavigate} />} />
+          <Route path="/lobby" element={<Lobby onNavigate={handleNavigate} />} />
+          <Route path="/game/:roomCode" element={<GameBoard onNavigate={handleNavigate} />} />
+          <Route path="/result" element={<Result onNavigate={handleNavigate} />} />
+          <Route path="*" element={<Navigate to="/" />} />
+        </Routes>
+      </Suspense>
     </div>
   );
 }

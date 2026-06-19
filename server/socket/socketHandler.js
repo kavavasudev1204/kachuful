@@ -56,8 +56,8 @@ export default function registerSocketHandlers(io) {
           (p) => p.name.toLowerCase() === name.trim().toLowerCase()
         );
 
-        if (playerInRoom && !playerInRoom.connected) {
-          // Reconnection flow
+        if (playerInRoom) {
+          // Reconnection flow (updates socket ID and maps game state)
           const room = handlePlayerReconnect(code, name.trim(), socket.id);
           socket.join(code);
           

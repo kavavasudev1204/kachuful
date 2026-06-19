@@ -65,3 +65,19 @@
   outline: 3px solid #b89742;
   outline-offset: 2px;
 }
+
+/* Trick Winner Shine sweep animation */
+@keyframes shine-sweep {
+  0% {
+    left: -100%;
+  }
+  50% {
+    left: 100%;
+  }
+  100% {
+    left: 200%;
+  }
+}
+.animate-shine {
+  animation: shine-sweep 2.2s infinite ease-in-out;
+}

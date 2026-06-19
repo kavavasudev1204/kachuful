@@ -117,6 +117,13 @@ export const useGameStore = create((set, get) => ({
 
     socket.on("connect", () => {
       set({ myPlayerId: socket.id, isConnected: true });
+      // Auto-rejoin if we already have room details (e.g. socket briefly dropped and reconnected)
+      const currentRoomCode = get().roomCode;
+      const currentName = get().playerName;
+      if (currentRoomCode && currentName && !get().isOffline) {
+        console.log(`[Socket] Re-connected. Auto-rejoining room: ${currentRoomCode} as ${currentName}`);
+        socket.emit("join-room", { roomCode: currentRoomCode, name: currentName });
+      }
     });
 
     socket.on("disconnect", () => {
@@ -124,6 +131,7 @@ export const useGameStore = create((set, get) => ({
     });
 
     socket.on("room-created", (room) => {
+      localStorage.setItem("activeRoomCode", room.roomCode);
       set({
         roomCode: room.roomCode,
         hostId: room.hostId,
@@ -137,6 +145,7 @@ export const useGameStore = create((set, get) => ({
     });
 
     socket.on("player-joined", (room) => {
+      localStorage.setItem("activeRoomCode", room.roomCode);
       set({
         roomCode: room.roomCode,
         players: room.players,
@@ -200,25 +209,27 @@ export const useGameStore = create((set, get) => ({
     });
 
     socket.on("player-disconnected", ({ playerId, playerName, room }) => {
-      // Mark player disconnected in UI
       set({
         players: room.players,
-        gameState: room.gameState // Sync re-mapped structures
+        gameState: room.gameState
       });
-      // Add local notice
       get().addSystemChat(`${playerName} disconnected. They have 5 minutes to reconnect.`);
     });
 
     socket.on("player-reconnected", ({ room, playerId, playerName }) => {
+      localStorage.setItem("activeRoomCode", room.roomCode);
+      const isMe = playerName.toLowerCase() === get().playerName.toLowerCase();
       set({
         players: room.players,
         gameState: room.gameState,
-        hostId: room.hostId
+        hostId: room.hostId,
+        ...(isMe ? { myPlayerId: playerId } : {})
       });
       get().addSystemChat(`${playerName} reconnected to the room.`);
     });
 
     socket.on("room-closed", ({ message }) => {
+      localStorage.removeItem("activeRoomCode");
       set({
         roomCode: "",
         players: [],
@@ -312,6 +323,7 @@ export const useGameStore = create((set, get) => ({
       socket.emit("leave-room", { roomCode: code });
     }
     get().disconnectSocket();
+    localStorage.removeItem("activeRoomCode");
     set({
       roomCode: "",
       players: [],
@@ -558,7 +570,7 @@ export const useGameStore = create((set, get) => ({
         state.trump,
         priorBidsSum,
         isLastPlayer,
-        state.enableLastBidRestriction && state.round === 1
+        state.enableLastBidRestriction
       );
 
       try {

@@ -106,7 +106,7 @@ export function placeBid(state, playerId, bid) {
     cardsDealt: state.cardsPerPlayer,
     priorBidsSum,
     isLastPlayer,
-    enableLastBidRestriction: state.enableLastBidRestriction && state.round === 1
+    enableLastBidRestriction: state.enableLastBidRestriction
   });
 
   if (!validation.valid) {
