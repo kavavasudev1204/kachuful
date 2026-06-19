@@ -99,11 +99,12 @@ export default function registerSocketHandlers(io) {
       try {
         const room = startGame(roomCode, socket.id);
         
-        // Expose debugging logs as requested
-        const players = room.players;
-        console.log(roomCode);
-        console.log(io.sockets.adapter.rooms.get(roomCode));
-        console.log(players);
+        // Expose debugging logs as requested by STEP 1 and STEP 3
+        console.log("START GAME");
+        console.log("ROOM STATE:", room);
+        console.log("PLAYERS LIST:", room.players);
+        console.log("GAME STATE:", room.gameState);
+        console.log("SOCKET ROOM MEMBERSHIP:", io.sockets.adapter.rooms.get(room.roomCode));
 
         // Notify players that the game has started by sending gameState
         io.to(room.roomCode).emit("game-started", room.gameState);
@@ -244,6 +245,22 @@ export default function registerSocketHandlers(io) {
         }
       } catch (err) {
         sendError("leave-room", err.message);
+      }
+    });
+
+    // 8.5 GET ROOM STATE
+    socket.on("get-room-state", ({ roomCode }) => {
+      try {
+        if (!roomCode) return sendError("get-room-state", "Room code is required.");
+        const code = roomCode.trim().toUpperCase();
+        const room = getRoom(code);
+        if (room) {
+          socket.emit("room-state", room);
+        } else {
+          socket.emit("room-state", null);
+        }
+      } catch (err) {
+        sendError("get-room-state", err.message);
       }
     });
 

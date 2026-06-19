@@ -2,6 +2,7 @@ import React, { useEffect, lazy, Suspense } from "react";
 import { Routes, Route, useNavigate, Navigate } from "react-router-dom";
 import { useGameStore } from "./store/gameStore";
 import { socket } from "./socket/socket";
+import ErrorBoundary from "./components/ErrorBoundary";
 
 // Lazy load page components for bundle size optimization
 const Home = lazy(() => import("./pages/Home"));
@@ -76,7 +77,11 @@ export default function App() {
         <Routes>
           <Route path="/" element={<Home onNavigate={handleNavigate} />} />
           <Route path="/lobby" element={<Lobby onNavigate={handleNavigate} />} />
-          <Route path="/game/:roomCode" element={<GameBoard onNavigate={handleNavigate} />} />
+          <Route path="/game/:roomCode" element={
+            <ErrorBoundary>
+              <GameBoard onNavigate={handleNavigate} />
+            </ErrorBoundary>
+          } />
           <Route path="/result" element={<Result onNavigate={handleNavigate} />} />
           <Route path="*" element={<Navigate to="/" />} />
         </Routes>

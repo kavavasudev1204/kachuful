@@ -333,6 +333,47 @@ export default function GameBoard({ onNavigate }) {
   const isMyTurn = activePlayer?.id === myPlayerId;
   const myHand = hands?.[myPlayerId] || [];
 
+  // Debug logs as requested by STEP 1
+  console.log("ROOM", roomCode || paramRoomCode);
+  console.log("GAME", gameState);
+  console.log("PLAYERS", gameStatePlayers);
+  console.log("HAND", myHand);
+  console.log("PHASE", phase);
+
+  // STEP 5: Loading safety gates to prevent crashes
+  if (!roomCode && !paramRoomCode) {
+    return (
+      <div className="min-h-screen flex flex-col justify-center items-center bg-slate-950 text-slate-200">
+        <RefreshCw className="w-8 h-8 animate-spin text-amber-500 mb-4" />
+        <span className="text-xs font-black tracking-widest text-slate-400 uppercase font-sans">Loading Room details...</span>
+      </div>
+    );
+  }
+  if (!gameStatePlayers || gameStatePlayers.length === 0) {
+    return (
+      <div className="min-h-screen flex flex-col justify-center items-center bg-slate-950 text-slate-200">
+        <RefreshCw className="w-8 h-8 animate-spin text-amber-500 mb-4" />
+        <span className="text-xs font-black tracking-widest text-slate-400 uppercase font-sans font-bold">Synchronizing Room Players...</span>
+      </div>
+    );
+  }
+  if (!hands) {
+    return (
+      <div className="min-h-screen flex flex-col justify-center items-center bg-slate-950 text-slate-200">
+        <RefreshCw className="w-8 h-8 animate-spin text-amber-500 mb-4" />
+        <span className="text-xs font-black tracking-widest text-slate-400 uppercase font-sans">Loading Player Hands...</span>
+      </div>
+    );
+  }
+  if (!myHand) {
+    return (
+      <div className="min-h-screen flex flex-col justify-center items-center bg-slate-950 text-slate-200">
+        <RefreshCw className="w-8 h-8 animate-spin text-amber-500 mb-4" />
+        <span className="text-xs font-black tracking-widest text-slate-400 uppercase font-sans">Preparing Player Cards...</span>
+      </div>
+    );
+  }
+
   // Bidding restriction
   const priorBidsSum = Object.values(bids || {}).reduce((sum, v) => sum + v, 0);
   const bidsCount = Object.keys(bids || {}).length;

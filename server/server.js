@@ -3,6 +3,7 @@ import { createServer } from "http";
 import { Server } from "socket.io";
 import cors from "cors";
 import dotenv from "dotenv";
+import mongoose from "mongoose";
 import registerSocketHandlers from "./socket/socketHandler.js";
 
 // Load environment variables
@@ -37,15 +38,22 @@ const io = new Server(httpServer, {
 // Register Socket events
 registerSocketHandlers(io);
 
-// Optional MongoDB Atlas setup (Fallback to in-memory)
+
+// --- MongoDB Setup ---
 const mongoUri = process.env.MONGODB_URI;
 if (mongoUri) {
-  console.log("[Server] MONGODB_URI detected. (Optional match history backend can be initialized here)");
+  console.log("Loaded MONGODB_URI:", process.env.MONGODB_URI);
+  mongoose.connect(mongoUri, {
+    useNewUrlParser: true,
+    useUnifiedTopology: true
+  })
+    .then(() => console.log("[Server] Connected to MongoDB"))
+    .catch(err => console.error("[Server] MongoDB connection error:", err));
 } else {
   console.log("[Server] No MONGODB_URI provided. Running purely with In-Memory room management.");
 }
 
-// Start Server explicitly binding to all network interfaces
+// --- Start Server ---
 httpServer.listen(PORT, "0.0.0.0", () => {
   console.log(`[Server] Kachuful Server running on port ${PORT} (exposing to local network on http://10.41.34.76:${PORT})`);
 });
