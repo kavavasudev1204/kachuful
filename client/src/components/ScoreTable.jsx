@@ -4,7 +4,7 @@ import { getTrumpSymbol } from "../utils/gameEngine";
 import { Play } from "lucide-react";
 
 export default function ScoreTable({ isModal = false }) {
-  const { gameState, players, isOffline, continueRoundOffline, continueRoundOnline, accessibilityMode } = useGameStore();
+  const { gameState, players, isOffline, continueRoundOffline, continueRoundOnline, accessibilityMode, isSpectator } = useGameStore();
 
   if (!gameState) return null;
 
@@ -158,7 +158,7 @@ export default function ScoreTable({ isModal = false }) {
       </div>
 
       {/* Continue button for modal roundEnd phase */}
-      {isModal && gameState.phase === "roundEnd" && (
+      {isModal && gameState.phase === "roundEnd" && !isSpectator && (
         <button
           onClick={handleContinue}
           className="w-full mt-3 bg-gradient-to-r from-amber-500 via-amber-450 to-amber-550 text-slate-950 font-black py-4 px-6 rounded-2xl shadow-lg shadow-amber-500/20 transition-all duration-300 transform active:scale-98 hover:shadow-amber-500/35 animate-pulse text-sm uppercase tracking-wider outline-none accessibility-focus flex justify-center items-center gap-2"

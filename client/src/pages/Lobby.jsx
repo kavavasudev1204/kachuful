@@ -16,7 +16,8 @@ export default function Lobby({ onNavigate }) {
     errorMessage,
     clearError,
     status,
-    gameState
+    gameState,
+    isSpectator
   } = useGameStore();
 
   const [copied, setCopied] = useState(false);
@@ -134,6 +135,21 @@ export default function Lobby({ onNavigate }) {
 
   return (
     <div className="h-screen max-h-screen flex flex-col justify-between bg-slate-950 relative overflow-hidden select-none">
+      {isSpectator && (
+        <div className="w-full bg-indigo-950/80 border-b border-indigo-500/30 py-2 px-6 flex justify-between items-center text-xs tracking-wider z-50 backdrop-blur-sm shrink-0">
+          <div className="flex items-center gap-2">
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-indigo-500"></span>
+            </span>
+            <span className="font-extrabold text-indigo-300">SPECTATING LOBBY</span>
+          </div>
+          <div className="flex items-center gap-1.5 text-slate-400">
+            <span>Room Code:</span>
+            <span className="font-bold text-slate-200 tracking-widest uppercase">{roomCode}</span>
+          </div>
+        </div>
+      )}
       {/* Background decorations */}
       <div className="absolute top-[-20%] left-[-10%] w-[50%] h-[50%] bg-blue-900/10 rounded-full blur-[120px] pointer-events-none" />
       <div className="absolute bottom-[-20%] right-[-10%] w-[50%] h-[50%] bg-amber-950/10 rounded-full blur-[120px] pointer-events-none" />

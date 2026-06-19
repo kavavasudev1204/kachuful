@@ -20,6 +20,21 @@ export const useGameStore = create((set, get) => ({
   isConnected: false,
   isOffline: false,
   
+  // Premium Features State
+  coins: parseInt(localStorage.getItem("coins") || "0", 10),
+  playerStats: JSON.parse(localStorage.getItem("playerStats") || "null") || {
+    playerName: "",
+    coins: 0,
+    gamesPlayed: 0,
+    gamesWon: 0,
+    totalPoints: 0,
+    unlockedAchievements: []
+  },
+  dailyRewardLastClaimed: localStorage.getItem("dailyRewardLastClaimed") || "",
+  isSpectator: false,
+  globalLeaderboard: [],
+  activeEmojis: [],
+  
   // Room state
   roomCode: "",
   hostId: "",
@@ -120,6 +135,13 @@ export const useGameStore = create((set, get) => ({
     socket.off("player-name-changed");
     socket.off("chat-message");
     socket.off("error-occurred");
+    socket.off("spectator-joined-success");
+    socket.off("spectator-joined");
+    socket.off("spectator-left");
+    socket.off("player-stats-data");
+    socket.off("player-stats-updated");
+    socket.off("leaderboard-data");
+    socket.off("emoji-received");
 
     socket.on("connect", () => {
       set({ myPlayerId: socket.id, isConnected: true });
@@ -272,7 +294,8 @@ export const useGameStore = create((set, get) => ({
         players: [],
         status: "waiting",
         gameState: null,
-        chats: []
+        chats: [],
+        isSpectator: false
       });
       set({ errorMessage: message || "Room was closed by the host." });
     });
@@ -299,6 +322,76 @@ export const useGameStore = create((set, get) => ({
 
     socket.on("error-occurred", ({ message }) => {
       set({ errorMessage: message });
+    });
+
+    socket.on("spectator-joined-success", (room) => {
+      sessionStorage.setItem("activeRoomCode", room.roomCode);
+      set({
+        roomCode: room.roomCode,
+        hostId: room.hostId,
+        hostName: room.hostName,
+        status: room.status,
+        players: room.players,
+        settings: room.settings,
+        gameState: room.gameState,
+        isSpectator: true,
+        myPlayerId: socket.id
+      });
+    });
+
+    socket.on("spectator-joined", ({ room, spectatorId, spectatorName }) => {
+      set({
+        players: room.players,
+        status: room.status,
+        gameState: room.gameState
+      });
+      get().addSystemChat(`Spectator ${spectatorName} joined the room.`);
+    });
+
+    socket.on("spectator-left", ({ spectatorId, room }) => {
+      set({
+        players: room.players,
+        gameState: room.gameState
+      });
+      get().addSystemChat(`A spectator left the room.`);
+    });
+
+    socket.on("player-stats-data", (stats) => {
+      if (stats) {
+        localStorage.setItem("coins", String(stats.coins || 0));
+        localStorage.setItem("playerStats", JSON.stringify(stats));
+        set({
+          coins: stats.coins || 0,
+          playerStats: stats
+        });
+      }
+    });
+
+    socket.on("player-stats-updated", (stats) => {
+      if (stats) {
+        localStorage.setItem("coins", String(stats.coins || 0));
+        localStorage.setItem("playerStats", JSON.stringify(stats));
+        set({
+          coins: stats.coins || 0,
+          playerStats: stats
+        });
+      }
+    });
+
+    socket.on("leaderboard-data", (leaderboard) => {
+      set({ globalLeaderboard: leaderboard || [] });
+    });
+
+    socket.on("emoji-received", ({ playerId, playerName, isSpectator, emoji }) => {
+      const id = `${Date.now()}-${Math.random()}`;
+      set((state) => ({
+        activeEmojis: [...state.activeEmojis, { id, playerId, playerName, isSpectator, emoji }]
+      }));
+      setTimeout(() => {
+        set((state) => ({
+          activeEmojis: state.activeEmojis.filter((e) => e.id !== id)
+        }));
+      }, 3000);
     });
   },
 
@@ -374,7 +467,8 @@ export const useGameStore = create((set, get) => ({
       players: [],
       status: "waiting",
       gameState: null,
-      chats: []
+      chats: [],
+      isSpectator: false
     });
   },
 
@@ -390,6 +484,74 @@ export const useGameStore = create((set, get) => ({
     if (code) {
       socket.emit("change-name", { roomCode: code, newName });
     }
+  },
+
+  joinAsSpectator: (roomCode, name) => {
+    get().connectSocket();
+    if (socket.connected) {
+      set({ myPlayerId: socket.id });
+    }
+    socket.emit("join-spectator", { roomCode, name });
+  },
+
+  sendEmoji: (emoji) => {
+    const code = get().roomCode;
+    if (get().isOffline) {
+      const id = `${Date.now()}-${Math.random()}`;
+      set((state) => ({
+        activeEmojis: [...state.activeEmojis, { id, playerId: LOCAL_PLAYER_ID, playerName: get().hostName, isSpectator: false, emoji }]
+      }));
+      setTimeout(() => {
+        set((state) => ({
+          activeEmojis: state.activeEmojis.filter((e) => e.id !== id)
+        }));
+      }, 3000);
+
+      // Simulating bot reactions with emojis
+      if (Math.random() < 0.5) {
+        setTimeout(() => {
+          if (get().isOffline) {
+            const randomBot = get().players.find(p => p.isBot);
+            const emojis = ["😂", "👍", "😮", "😢", "👏", "🔥"];
+            const randomEmoji = emojis[Math.floor(Math.random() * emojis.length)];
+            if (randomBot) {
+              const botEmojiId = `${Date.now()}-${Math.random()}`;
+              set((state) => ({
+                activeEmojis: [...state.activeEmojis, { id: botEmojiId, playerId: randomBot.id, playerName: randomBot.name, isSpectator: false, emoji: randomEmoji }]
+              }));
+              setTimeout(() => {
+                set((state) => ({
+                  activeEmojis: state.activeEmojis.filter((e) => e.id !== botEmojiId)
+                }));
+              }, 3000);
+            }
+          }
+        }, 1200);
+      }
+      return;
+    }
+
+    if (code) {
+      socket.emit("send-emoji", { roomCode: code, emoji });
+    }
+  },
+
+  getLeaderboard: () => {
+    get().connectSocket();
+    socket.emit("get-leaderboard");
+  },
+
+  getPlayerStats: (name) => {
+    get().connectSocket();
+    socket.emit("get-player-stats", { name });
+  },
+
+  claimDailyReward: (name) => {
+    get().connectSocket();
+    const now = new Date().toISOString();
+    localStorage.setItem("dailyRewardLastClaimed", now);
+    set({ dailyRewardLastClaimed: now });
+    socket.emit("claim-daily-reward", { name });
   },
 
   addSystemChat: (message) => {

@@ -68,7 +68,10 @@ export default function GameBoard({ onNavigate }) {
     setPlayerName,
     joinRoomOnline,
     isConnected,
-    getRoomStateOnline
+    getRoomStateOnline,
+    isSpectator,
+    activeEmojis,
+    sendEmoji
   } = useGameStore();
 
   const [chatInput, setChatInput] = useState("");
@@ -166,7 +169,7 @@ export default function GameBoard({ onNavigate }) {
 
   const gameStatePlayers = gameState?.players || players || [];
   const activePlayer = gameStatePlayers[currentTurn];
-  const isMyTurn = activePlayer?.id === myPlayerId;
+  const isMyTurn = !isSpectator && activePlayer?.id === myPlayerId;
   
   const dealerPlayer = gameState?.players && gameState?.dealerIndex !== undefined ? gameState.players[gameState.dealerIndex] : null;
   const room = roomCode || paramRoomCode ? {
@@ -650,6 +653,41 @@ export default function GameBoard({ onNavigate }) {
 
   return (
     <div className="h-screen max-h-screen flex flex-col justify-between bg-slate-950 text-slate-100 relative overflow-hidden select-none">
+      {isSpectator && (
+        <div className="w-full bg-indigo-950/80 border-b border-indigo-500/30 py-2 px-6 flex justify-between items-center text-xs tracking-wider z-50 backdrop-blur-sm shrink-0">
+          <div className="flex items-center gap-2">
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-indigo-500"></span>
+            </span>
+            <span className="font-extrabold text-indigo-300">SPECTATING GAME</span>
+          </div>
+          <div className="flex items-center gap-1.5 text-slate-400 relative">
+            <span>Room Code:</span>
+            <span className="font-bold text-slate-200 tracking-widest uppercase">{room?.roomCode}</span>
+            
+            {/* Spectator floating emojis */}
+            <div className="absolute top-[20px] right-0 pointer-events-none">
+              <AnimatePresence>
+                {activeEmojis
+                  .filter((e) => e.isSpectator)
+                  .map((e) => (
+                    <motion.div
+                      key={e.id}
+                      initial={{ y: 5, scale: 0.5, opacity: 0 }}
+                      animate={{ y: 35, scale: 1.4, opacity: 1 }}
+                      exit={{ y: 65, scale: 1, opacity: 0 }}
+                      transition={{ duration: 1.5, ease: "easeOut" }}
+                      className="text-xl drop-shadow-[0_2px_4px_rgba(0,0,0,0.5)] absolute"
+                    >
+                      {e.emoji}
+                    </motion.div>
+                  ))}
+              </AnimatePresence>
+            </div>
+          </div>
+        </div>
+      )}
       {/* Background radial overlays */}
       <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-blue-900/10 rounded-full blur-[100px] pointer-events-none" />
       <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-indigo-950/15 rounded-full blur-[100px] pointer-events-none" />
@@ -714,11 +752,27 @@ export default function GameBoard({ onNavigate }) {
       {/* Main Game Table Arena */}
       <div className="flex-1 w-full max-w-4xl mx-auto flex flex-col items-center justify-center relative px-2 py-4">
         {/* Dynamic Turn Announcement HUD Bar */}
-        <div className="mb-4 bg-slate-900/60 border border-slate-850 px-6 py-2 rounded-2xl shadow-md backdrop-blur-sm z-20 flex items-center gap-2">
-          <div className={`w-2.5 h-2.5 rounded-full ${isMyTurn ? "bg-emerald-500 shadow-[0_0_10px_#10b981]" : "bg-amber-500 shadow-[0_0_10px_#f59e0b]"} animate-ping`} />
-          <span className="text-xs font-black tracking-widest uppercase">
-            {activePlayer ? (isMyTurn ? "▶ YOUR TURN" : `▶ ${activePlayer.name} TURN`) : "SYNCING"}
-          </span>
+        <div className="mb-4 flex flex-col items-center gap-2 z-20">
+          <div className="bg-slate-900/60 border border-slate-850 px-6 py-2 rounded-2xl shadow-md backdrop-blur-sm flex items-center gap-2">
+            <div className={`w-2.5 h-2.5 rounded-full ${isMyTurn ? "bg-emerald-500 shadow-[0_0_10px_#10b981]" : "bg-amber-500 shadow-[0_0_10px_#f59e0b]"} animate-ping`} />
+            <span className="text-xs font-black tracking-widest uppercase">
+              {activePlayer ? (isMyTurn ? "▶ YOUR TURN" : `▶ ${activePlayer.name} TURN`) : "SYNCING"}
+            </span>
+          </div>
+
+          {/* Emoji Drawer Bar */}
+          <div className="bg-slate-900/50 border border-slate-850/60 rounded-full px-3 py-1 flex gap-2 shadow-lg backdrop-blur-sm">
+            {["😂", "👍", "😮", "😢", "👏", "🔥"].map((emoji) => (
+              <button
+                key={emoji}
+                onClick={() => sendEmoji(emoji)}
+                className="text-base hover:scale-130 active:scale-95 transition-transform duration-200 focus:outline-none cursor-pointer p-0.5"
+                title={`Send ${emoji} emoji`}
+              >
+                {emoji}
+              </button>
+            ))}
+          </div>
         </div>
 
         {/* Error Toast */}
@@ -907,6 +961,25 @@ export default function GameBoard({ onNavigate }) {
                   top: coords.top
                 }}
               >
+                {/* Floating Emojis */}
+                <div className="absolute top-[-30px] flex flex-col items-center pointer-events-none z-30 w-full">
+                  <AnimatePresence>
+                    {activeEmojis
+                      .filter((e) => e.playerId === player.id)
+                      .map((e) => (
+                        <motion.div
+                          key={e.id}
+                          initial={{ y: 10, scale: 0.5, opacity: 0 }}
+                          animate={{ y: -30, scale: 1.5, opacity: 1 }}
+                          exit={{ y: -65, scale: 1, opacity: 0 }}
+                          transition={{ duration: 1.5, ease: "easeOut" }}
+                          className="text-2xl drop-shadow-[0_4px_8px_rgba(0,0,0,0.5)] absolute text-center w-full"
+                        >
+                          {e.emoji}
+                        </motion.div>
+                      ))}
+                  </AnimatePresence>
+                </div>
                 <div className="flex items-center gap-1 mb-1">
                   <span className={`text-[10px] font-bold tracking-wide truncate max-w-[70px] select-none ${isMe ? "text-amber-400 font-extrabold" : "text-slate-300"}`}>
                     {player.name}
@@ -1094,8 +1167,8 @@ export default function GameBoard({ onNavigate }) {
           })}
 
           {myHand.length === 0 && (
-            <div className="text-slate-500 text-xs font-semibold tracking-wide uppercase">
-              No cards in hand. Waiting for deals...
+            <div className="text-slate-500 text-xs font-semibold tracking-wide uppercase text-center">
+              {isSpectator ? "Spectator Mode — Watching game board" : "No cards in hand. Waiting for deals..."}
             </div>
           )}
         </div>

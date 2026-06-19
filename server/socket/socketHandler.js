@@ -6,7 +6,8 @@ import {
   changeRoomSettings,
   startGame,
   handlePlayerDisconnect,
-  handlePlayerReconnect
+  handlePlayerReconnect,
+  addSpectator
 } from "../controllers/roomController.js";
 import {
   resolveTrick,
@@ -16,6 +17,12 @@ import {
   getBotBid,
   getBotCardToPlay
 } from "../gameEngine/gameManager.js";
+import {
+  getPlayerStats,
+  updatePlayerStats,
+  getGlobalLeaderboard
+} from "../controllers/playerStats.js";
+
 
 // Helper to serialize GameState for a specific player (hiding opponents' private info)
 function serializeGameStateForPlayer(gameState, playerId) {
@@ -124,6 +131,8 @@ function serializeRoomForPlayer(room, playerId) {
 function broadcastToRoom(io, roomCode, event, payloadMaker) {
   const room = getRoom(roomCode);
   if (!room) return;
+  
+  // Broadcast to players
   room.players.forEach(p => {
     const s = io.sockets.sockets.get(p.id);
     if (s) {
@@ -131,6 +140,17 @@ function broadcastToRoom(io, roomCode, event, payloadMaker) {
       s.emit(event, data);
     }
   });
+
+  // Broadcast to spectators
+  if (room.spectators) {
+    room.spectators.forEach(spec => {
+      const s = io.sockets.sockets.get(spec.id);
+      if (s) {
+        const data = typeof payloadMaker === "function" ? payloadMaker(spec.id) : payloadMaker;
+        s.emit(event, data);
+      }
+    });
+  }
 }
 
 // Check and process turns for bots or disconnected players
@@ -211,8 +231,7 @@ function checkAndProcessOfflineTurns(io, room) {
               
               if (roundEnded) {
                 if (currentRoom.gameState.phase === "gameEnd") {
-                  currentRoom.status = "finished";
-                  io.to(currentRoom.roomCode).emit("game-finished", currentRoom.gameState);
+                  handleGameFinished(io, currentRoom);
                 } else {
                   broadcastToRoom(io, currentRoom.roomCode, "round-finished", (pId) => serializeGameStateForPlayer(currentRoom.gameState, pId));
                   broadcastToRoom(io, currentRoom.roomCode, "scoreboard", (pId) => serializeGameStateForPlayer(currentRoom.gameState, pId));
@@ -238,6 +257,84 @@ function checkAndProcessOfflineTurns(io, room) {
       }
     }
   }
+}
+
+// Helper to process game end, award coins, and update statistics
+async function handleGameFinished(io, room) {
+  if (!room || !room.gameState || room.status === "finished") return;
+  room.status = "finished";
+  room.gameState.phase = "gameEnd";
+  
+  const finalScores = {};
+  let maxScore = -Infinity;
+  const playerScores = room.players.map(p => {
+    const scoresArray = room.gameState.scores[p.id] || [];
+    const totalScore = scoresArray.reduce((sum, s) => sum + s, 0);
+    finalScores[p.id] = totalScore;
+    if (totalScore > maxScore) {
+      maxScore = totalScore;
+    }
+    return { id: p.id, name: p.name, score: totalScore, isBot: p.isBot };
+  });
+
+  const winners = playerScores.filter(ps => ps.score === maxScore).map(ps => ps.id);
+
+  for (const p of room.players) {
+    if (p.isBot) continue;
+
+    const totalScore = finalScores[p.id] || 0;
+    const isWinner = winners.includes(p.id);
+    const coinsToAward = isWinner ? 50 : 10;
+    
+    try {
+      const currentStats = await getPlayerStats(p.name);
+      const achievementsToUnlock = [];
+      
+      const prevGamesPlayed = currentStats.gamesPlayed || 0;
+      const prevGamesWon = currentStats.gamesWon || 0;
+      const prevCoins = currentStats.coins || 0;
+      const prevAchievements = currentStats.unlockedAchievements || [];
+
+      if (prevGamesPlayed === 0) {
+        achievementsToUnlock.push("Novice");
+      }
+      if (isWinner && prevGamesWon === 0) {
+        achievementsToUnlock.push("First Victory");
+      }
+      if (prevGamesPlayed + 1 >= 10 && !prevAchievements.includes("Veteran")) {
+        achievementsToUnlock.push("Veteran");
+      }
+      if (prevCoins + coinsToAward >= 500 && !prevAchievements.includes("Coin Hoarder")) {
+        achievementsToUnlock.push("Coin Hoarder");
+      }
+      if (prevCoins + coinsToAward >= 1000 && !prevAchievements.includes("Kachuful Master")) {
+        achievementsToUnlock.push("Kachuful Master");
+      }
+
+      const updates = {
+        coins: coinsToAward,
+        gamesPlayed: 1,
+        gamesWon: isWinner ? 1 : 0,
+        totalPoints: totalScore,
+        unlockedAchievements: achievementsToUnlock
+      };
+
+      const updated = await updatePlayerStats(p.name, updates);
+      
+      const socket = io.sockets.sockets.get(p.id);
+      if (socket) {
+        socket.emit("player-stats-updated", updated);
+      }
+    } catch (err) {
+      console.error(`[Socket Error] Failed to update stats for player ${p.name}:`, err);
+    }
+  }
+
+  // Emit game-finished to the whole room (including spectators)
+  io.to(room.roomCode.toUpperCase()).emit("game-finished", room.gameState);
+  
+  // Also update room state for spectators
+  broadcastToRoom(io, room.roomCode, "room-updated", (pId) => serializeRoomForPlayer(room, pId));
 }
 
 export default function registerSocketHandlers(io) {
@@ -382,8 +479,7 @@ export default function registerSocketHandlers(io) {
               
               if (roundEnded) {
                 if (currentRoom.gameState.phase === "gameEnd") {
-                  currentRoom.status = "finished";
-                  io.to(currentRoom.roomCode).emit("game-finished", currentRoom.gameState);
+                  handleGameFinished(io, currentRoom);
                 } else {
                   broadcastToRoom(io, currentRoom.roomCode, "round-finished", (pId) => serializeGameStateForPlayer(currentRoom.gameState, pId));
                   broadcastToRoom(io, currentRoom.roomCode, "scoreboard", (pId) => serializeGameStateForPlayer(currentRoom.gameState, pId));
@@ -416,8 +512,7 @@ export default function registerSocketHandlers(io) {
         room.gameState = continueRound(room.gameState, socket.id);
 
         if (room.gameState.phase === "gameEnd") {
-          room.status = "finished";
-          io.to(room.roomCode).emit("game-finished", room.gameState);
+          handleGameFinished(io, room);
         } else {
           broadcastToRoom(io, room.roomCode, "next-round-started", (pId) => serializeGameStateForPlayer(room.gameState, pId));
           broadcastToRoom(io, room.roomCode, "cards-dealt", (pId) => serializeGameStateForPlayer(room.gameState, pId));
@@ -535,6 +630,99 @@ export default function registerSocketHandlers(io) {
       }
     });
 
+    // 11. JOIN SPECTATOR
+    socket.on("join-spectator", ({ roomCode, name }) => {
+      try {
+        if (!roomCode || roomCode.trim() === "") {
+          return sendError("join-spectator", "Room code is required.");
+        }
+        const code = roomCode.trim().toUpperCase();
+        const room = getRoom(code);
+        if (!room) {
+          return sendError("join-spectator", "Room not found.");
+        }
+
+        const spectatorName = name && name.trim() !== "" ? name.trim() : "Spectator";
+        const updatedRoom = addSpectator(code, socket.id, spectatorName);
+        socket.join(code);
+
+        // Notify room that spectator joined
+        broadcastToRoom(io, code, "spectator-joined", (pId) => ({
+          room: serializeRoomForPlayer(updatedRoom, pId),
+          spectatorId: socket.id,
+          spectatorName: spectatorName
+        }));
+        broadcastToRoom(io, code, "room-updated", (pId) => serializeRoomForPlayer(updatedRoom, pId));
+
+        // Send state back to the spectator
+        socket.emit("spectator-joined-success", serializeRoomForPlayer(updatedRoom, socket.id));
+      } catch (err) {
+        sendError("join-spectator", err.message);
+      }
+    });
+
+    // 12. SEND EMOJI
+    socket.on("send-emoji", ({ roomCode, emoji }) => {
+      const room = getRoom(roomCode);
+      if (!room) return;
+
+      let senderName = "Unknown";
+      let isSpectator = false;
+      const player = room.players.find(p => p.id === socket.id);
+      if (player) {
+        senderName = player.name;
+      } else {
+        const spec = room.spectators?.find(s => s.id === socket.id);
+        if (spec) {
+          senderName = spec.name;
+          isSpectator = true;
+        }
+      }
+
+      io.to(roomCode.toUpperCase()).emit("emoji-received", {
+        playerId: socket.id,
+        playerName: senderName,
+        isSpectator,
+        emoji
+      });
+    });
+
+    // 13. GET LEADERBOARD
+    socket.on("get-leaderboard", async () => {
+      try {
+        const leaderboard = await getGlobalLeaderboard();
+        socket.emit("leaderboard-data", leaderboard);
+      } catch (err) {
+        sendError("get-leaderboard", err.message);
+      }
+    });
+
+    // 14. GET PLAYER STATS
+    socket.on("get-player-stats", async ({ name }) => {
+      try {
+        if (!name || name.trim() === "") {
+          return sendError("get-player-stats", "Player name is required.");
+        }
+        const stats = await getPlayerStats(name);
+        socket.emit("player-stats-data", stats);
+      } catch (err) {
+        sendError("get-player-stats", err.message);
+      }
+    });
+
+    // 15. CLAIM DAILY REWARD
+    socket.on("claim-daily-reward", async ({ name }) => {
+      try {
+        if (!name || name.trim() === "") {
+          return sendError("claim-daily-reward", "Player name is required.");
+        }
+        const stats = await updatePlayerStats(name, { coins: 100 });
+        socket.emit("player-stats-data", stats);
+      } catch (err) {
+        sendError("claim-daily-reward", err.message);
+      }
+    });
+
     // DISCONNECT
     socket.on("disconnect", () => {
       if (process.env.DEBUG === "true") {
@@ -544,17 +732,24 @@ export default function registerSocketHandlers(io) {
       
       for (const room of affectedRooms) {
         const player = room.players.find(p => p.id === socket.id);
-        const name = player ? player.name : "Unknown Player";
-        
-        broadcastToRoom(io, room.roomCode, "player-disconnected", (pId) => ({
-          playerId: socket.id,
-          playerName: name,
-          room: serializeRoomForPlayer(room, pId)
-        }));
-        broadcastToRoom(io, room.roomCode, "room-updated", (pId) => serializeRoomForPlayer(room, pId));
+        if (player) {
+          broadcastToRoom(io, room.roomCode, "player-disconnected", (pId) => ({
+            playerId: socket.id,
+            playerName: player.name,
+            room: serializeRoomForPlayer(room, pId)
+          }));
+          broadcastToRoom(io, room.roomCode, "room-updated", (pId) => serializeRoomForPlayer(room, pId));
 
-        // Attempt auto-play if it's the disconnected player's turn
-        checkAndProcessOfflineTurns(io, room);
+          // Attempt auto-play if it's the disconnected player's turn
+          checkAndProcessOfflineTurns(io, room);
+        } else {
+          // If it was a spectator who disconnected
+          broadcastToRoom(io, room.roomCode, "spectator-left", (pId) => ({
+            spectatorId: socket.id,
+            room: serializeRoomForPlayer(room, pId)
+          }));
+          broadcastToRoom(io, room.roomCode, "room-updated", (pId) => serializeRoomForPlayer(room, pId));
+        }
       }
     });
   });

@@ -43,6 +43,7 @@ export function createRoom(hostId, hostName) {
         connected: true
       }
     ],
+    spectators: [],
     gameState: null
   };
   
@@ -196,6 +197,17 @@ export function handlePlayerDisconnect(socketId) {
         startRoomExpiryTimer(code);
       }
     }
+    
+    // Clean up spectators
+    if (room.spectators) {
+      const specIndex = room.spectators.findIndex(s => s.id === socketId);
+      if (specIndex !== -1) {
+        room.spectators.splice(specIndex, 1);
+        if (!affectedRooms.includes(room)) {
+          affectedRooms.push(room);
+        }
+      }
+    }
   }
   
   return affectedRooms;
@@ -296,4 +308,31 @@ function clearRoomExpiryTimer(roomCode) {
     clearTimeout(timeoutId);
     roomExpiryTimers.delete(roomCode);
   }
+}
+
+// Add spectator to room
+export function addSpectator(roomCode, spectatorId, spectatorName) {
+  const code = roomCode.toUpperCase();
+  const room = rooms[code];
+  if (!room) throw new Error("Room not found.");
+
+  // Check if player is already in room players
+  if (room.players.some(p => p.id === spectatorId || p.name.toLowerCase() === spectatorName.toLowerCase())) {
+    throw new Error("Already joined as a player.");
+  }
+
+  // Ensure spectators array exists
+  if (!room.spectators) {
+    room.spectators = [];
+  }
+
+  // Add spectator if not already there
+  if (!room.spectators.some(s => s.id === spectatorId)) {
+    room.spectators.push({
+      id: spectatorId,
+      name: spectatorName
+    });
+  }
+
+  return room;
 }
