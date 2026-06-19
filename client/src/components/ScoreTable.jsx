@@ -8,12 +8,12 @@ export default function ScoreTable({ isModal = false }) {
 
   if (!gameState) return null;
 
-  const { scores, roundHistory, maxRounds, round: currentRound, scoreMode } = gameState;
+  const { scores, roundHistory, maxRounds, round: currentRound, scoreMode } = gameState || {};
 
   // Compute total scores
   const totalScores = {};
-  for (const player of gameState.players) {
-    totalScores[player.id] = (scores[player.id] || []).reduce((sum, val) => sum + val, 0);
+  for (const player of (gameState?.players || [])) {
+    totalScores[player.id] = (scores?.[player.id] || []).reduce((sum, val) => sum + val, 0);
   }
 
   // Get score style / colors
@@ -42,8 +42,8 @@ export default function ScoreTable({ isModal = false }) {
     <div className="w-full flex flex-col gap-4">
       {/* Glassmorphism Summary Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-        {gameState.players.map((p) => {
-          const isWinner = totalScores[p.id] === Math.max(...Object.values(totalScores));
+        {(gameState?.players || []).map((p) => {
+          const isWinner = totalScores[p.id] === Math.max(...Object.values(totalScores || {}));
           return (
             <div
               key={p.id}
@@ -72,7 +72,7 @@ export default function ScoreTable({ isModal = false }) {
               <th className="py-3 px-3 text-left font-bold border-r border-slate-850 w-24">
                 TRUMP / RD
               </th>
-              {gameState.players.map((p) => (
+              {(gameState?.players || []).map((p) => (
                 <th key={p.id} className="py-3 px-2 font-extrabold border-r border-slate-850 min-w-24">
                   <div className="flex flex-col items-center">
                     <span className="truncate max-w-[80px]">{p.name}</span>
@@ -88,11 +88,11 @@ export default function ScoreTable({ isModal = false }) {
             {/* Rows for rounds */}
             {Array.from({ length: maxRounds }).map((_, idx) => {
               const rNum = idx + 1;
-              const rHistory = roundHistory.find((h) => h.round === rNum);
+              const rHistory = (roundHistory || []).find((h) => h.round === rNum);
               // Calculate trump for this round dynamically
               const rTrump = getTrumpForRoundLocal(rNum);
-              const isPast = rNum < currentRound || (rNum === currentRound && gameState.phase === "roundEnd");
-              const isCurrent = rNum === currentRound && gameState.phase !== "roundEnd";
+              const isPast = rNum < currentRound || (rNum === currentRound && gameState?.phase === "roundEnd");
+              const isCurrent = rNum === currentRound && gameState?.phase !== "roundEnd";
  
               return (
                 <tr
@@ -110,14 +110,14 @@ export default function ScoreTable({ isModal = false }) {
                   </td>
  
                   {/* Player Scores Columns */}
-                  {gameState.players.map((p) => {
-                    const playerScores = scores[p.id] || [];
+                  {(gameState?.players || []).map((p) => {
+                    const playerScores = scores?.[p.id] || [];
                     const score = playerScores[idx];
                     const hasScore = score !== undefined;
                     
                     // Retrieve bid & won for this round from history
-                    const bid = rHistory?.bids[p.id];
-                    const won = rHistory?.tricksWon[p.id];
+                    const bid = rHistory?.bids?.[p.id];
+                    const won = rHistory?.tricksWon?.[p.id];
  
                     return (
                       <td key={p.id} className="py-2.5 px-2 border-r border-slate-850">
@@ -147,7 +147,7 @@ export default function ScoreTable({ isModal = false }) {
               <td className="py-3 px-3 text-left border-r border-slate-850 text-[10px] tracking-wider uppercase text-amber-500 font-bold">
                 TOTAL
               </td>
-              {gameState.players.map((p) => (
+              {(gameState?.players || []).map((p) => (
                 <td key={p.id} className="py-3 px-2 border-r border-slate-850 text-amber-400 text-sm">
                   {totalScores[p.id]}
                 </td>

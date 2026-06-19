@@ -66,7 +66,8 @@ export default function GameBoard({ onNavigate }) {
     clearError,
     setPlayerName,
     joinRoomOnline,
-    isConnected
+    isConnected,
+    getRoomStateOnline
   } = useGameStore();
 
   const [chatInput, setChatInput] = useState("");
@@ -104,7 +105,7 @@ export default function GameBoard({ onNavigate }) {
       }, 1500);
       return () => clearTimeout(timer);
     }
-  }, [round, gameState?.hands?.[myPlayerId]?.length]);
+  }, [gameState?.round, gameState?.hands?.[myPlayerId]?.length]);
 
   // Auto-scroll chat drawer
   useEffect(() => {
@@ -135,6 +136,44 @@ export default function GameBoard({ onNavigate }) {
       }
     }
   }, [paramRoomCode, roomCode, joinRoomOnline, isOffline]);
+
+  const [roomLoadFailed, setRoomLoadFailed] = useState(false);
+
+  // 1. Auto-fetch room/game state on mount if missing
+  useEffect(() => {
+    if (!gameState && paramRoomCode && paramRoomCode !== "OFFLINE" && !isOffline) {
+      console.log(`[GameBoard] Missing gameState, fetching from server for room: ${paramRoomCode}`);
+      getRoomStateOnline(paramRoomCode);
+    }
+  }, [gameState, paramRoomCode, isOffline, getRoomStateOnline]);
+
+  // 2. Timeout for state loading fallback
+  useEffect(() => {
+    if (!gameState && !isOffline) {
+      const timer = setTimeout(() => {
+        if (!useGameStore.getState().gameState) {
+          console.log("[GameBoard] State sync timeout, displaying error fallback.");
+          setRoomLoadFailed(true);
+        }
+      }, 5000); // 5 seconds
+      return () => clearTimeout(timer);
+    } else {
+      setRoomLoadFailed(false);
+    }
+  }, [gameState, isOffline]);
+
+  // 3. Monitor error messages for invalid/inactive rooms
+  useEffect(() => {
+    if (errorMessage && (errorMessage.includes("Room not found") || errorMessage.includes("inactive") || errorMessage.includes("closed"))) {
+      setRoomLoadFailed(true);
+    }
+  }, [errorMessage]);
+
+  const handleReturnToLobby = () => {
+    clearError();
+    setRoomLoadFailed(false);
+    onNavigate("home");
+  };
 
   // Portrait Lock Overlay
   if (isPortrait) {
@@ -242,30 +281,31 @@ export default function GameBoard({ onNavigate }) {
     );
   }
 
-  // Room Error or Closed
-  if (errorMessage && (errorMessage.includes("Room not found") || errorMessage.includes("closed"))) {
+  // Unable to Load Room Fallback Screen
+  if (roomLoadFailed) {
     return (
-      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-4 text-center">
-        <div className="w-16 h-16 bg-amber-950/20 border border-amber-500/30 text-amber-500 rounded-full flex items-center justify-center mb-4 shadow-[0_0_20px_rgba(245,158,11,0.2)]">
-          <ShieldAlert className="w-8 h-8" />
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-4 text-center select-none relative">
+        <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-blue-900/10 rounded-full blur-[100px] pointer-events-none" />
+        <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-red-950/10 rounded-full blur-[100px] pointer-events-none" />
+        
+        <div className="w-16 h-16 bg-red-950/20 border border-red-500/30 text-red-500 rounded-full flex items-center justify-center mb-4 shadow-[0_0_20px_rgba(239,68,68,0.2)] animate-pulse">
+          <AlertTriangle className="w-8 h-8" />
         </div>
-        <h2 className="text-xl font-extrabold text-slate-200 tracking-wider mb-2">ROOM INACTIVE</h2>
+        <h2 className="text-xl font-extrabold text-slate-200 tracking-wider mb-2 uppercase">Unable to load room</h2>
         <p className="text-slate-400 text-xs max-w-xs mb-6 leading-relaxed">
-          {errorMessage}
+          We couldn't retrieve the room information. The room may have been closed, the session expired, or the code is invalid.
         </p>
         <button
-          onClick={() => {
-            clearError();
-            onNavigate("home");
-          }}
-          className="flex items-center gap-1.5 px-6 py-3 bg-amber-500 hover:bg-amber-450 text-slate-950 rounded-xl text-xs font-bold transition-all shadow-md shadow-amber-500/10"
+          onClick={handleReturnToLobby}
+          className="flex items-center gap-1.5 px-6 py-3 bg-amber-500 hover:bg-amber-450 text-slate-950 rounded-xl text-xs font-bold transition-all shadow-md shadow-amber-500/10 outline-none"
         >
-          <Home className="w-3.5 h-3.5" /> Return to Lobby Selection
+          <Home className="w-3.5 h-3.5" /> Return to Lobby
         </button>
       </div>
     );
   }
 
+  // Still Synchronizing loader
   if (!gameState) {
     return (
       <div className="min-h-screen flex flex-col justify-center items-center bg-slate-950 text-slate-200">
@@ -286,25 +326,26 @@ export default function GameBoard({ onNavigate }) {
     tricksWon,
     playedCards,
     phase
-  } = gameState;
+  } = gameState || {};
 
-  const activePlayer = gameState.players[currentTurn];
+  const gameStatePlayers = gameState?.players || players || [];
+  const activePlayer = gameStatePlayers[currentTurn];
   const isMyTurn = activePlayer?.id === myPlayerId;
-  const myHand = hands[myPlayerId] || [];
+  const myHand = hands?.[myPlayerId] || [];
 
   // Bidding restriction
-  const priorBidsSum = Object.values(bids).reduce((sum, v) => sum + v, 0);
-  const bidsCount = Object.keys(bids).length;
-  const isLastBidder = bidsCount === gameState.players.length - 1;
-  const forbiddenBid = isLastBidder && settings.enableLastBidRestriction
+  const priorBidsSum = Object.values(bids || {}).reduce((sum, v) => sum + v, 0);
+  const bidsCount = Object.keys(bids || {}).length;
+  const isLastBidder = bidsCount === gameStatePlayers.length - 1;
+  const forbiddenBid = isLastBidder && settings?.enableLastBidRestriction
     ? cardsPerPlayer - priorBidsSum
     : null;
 
   // Legal card check
   const isCardPlayable = (card) => {
     if (!isMyTurn || phase !== "playing") return false;
-    if (playedCards.length === 0) return true;
-    const leadSuit = playedCards[0]?.card?.suit;
+    if ((playedCards || []).length === 0) return true;
+    const leadSuit = playedCards?.[0]?.card?.suit;
     if (!leadSuit) return true;
     if (card.suit === leadSuit) return true;
     const hasLeadSuit = myHand.some(c => c.suit === leadSuit);
@@ -312,12 +353,15 @@ export default function GameBoard({ onNavigate }) {
   };
 
   // Seating
-  const N = gameState.players.length;
-  const myIndex = gameState.players.findIndex(p => p.id === myPlayerId);
+  const N = gameStatePlayers.length;
+  const myIndex = gameStatePlayers.findIndex(p => p.id === myPlayerId);
   const orderedPlayers = [];
   for (let i = 0; i < N; i++) {
     const offsetIndex = (myIndex + i) % N;
-    orderedPlayers.push(gameState.players[offsetIndex >= 0 ? offsetIndex : 0]);
+    const p = gameStatePlayers[offsetIndex >= 0 ? offsetIndex : 0];
+    if (p) {
+      orderedPlayers.push(p);
+    }
   }
 
   const getSeatingAngles = (total) => {
@@ -543,8 +587,8 @@ export default function GameBoard({ onNavigate }) {
     }
   };
 
-  const winningPlay = determineTrickWinner({ playedCards, activeTrump: trump });
-  const deckSize = gameState.deck?.length ?? (52 - (N * round));
+  const winningPlay = determineTrickWinner({ playedCards: playedCards || [], activeTrump: trump });
+  const deckSize = gameState?.deck?.length ?? (52 - (N * (round || 1)));
 
   return (
     <div className="h-screen max-h-screen flex flex-col justify-between bg-slate-950 text-slate-100 relative overflow-hidden select-none">
@@ -622,47 +666,47 @@ export default function GameBoard({ onNavigate }) {
         {/* Circular Table Felt with Weave Felt Texture */}
            {/* TRICK WINNER POPUP MODAL */}
            <AnimatePresence>
-             {showWinnerBanner && gameState.lastTrickWinner && (
-               <motion.div
-                 initial={{ opacity: 0 }}
-                 animate={{ opacity: 1 }}
-                 exit={{ opacity: 0 }}
-                 className="fixed inset-0 bg-slate-950/80 backdrop-blur-[3px] z-50 flex flex-col justify-center items-center pointer-events-auto"
-               >
-                 <motion.div
-                   initial={{ scale: 0.85, y: 30 }}
-                   animate={{ scale: 1.15, y: 0 }}
-                   exit={{ scale: 0.85, y: 30 }}
-                   className="bg-slate-900/95 border-2 border-amber-500 px-10 py-8 rounded-3xl shadow-[0_0_50px_rgba(234,179,8,0.85)] flex flex-col items-center gap-3.5 text-center max-w-sm relative overflow-hidden"
-                 >
-                   {/* Gold Borders */}
-                   <div className="absolute top-2 left-2 w-3.5 h-3.5 border-t-2 border-l-2 border-amber-500" />
-                   <div className="absolute top-2 right-2 w-3.5 h-3.5 border-t-2 border-r-2 border-amber-500" />
-                   <div className="absolute bottom-2 left-2 w-3.5 h-3.5 border-b-2 border-l-2 border-amber-500" />
-                   <div className="absolute bottom-2 right-2 w-3.5 h-3.5 border-b-2 border-r-2 border-amber-500" />
-                   
-                   <div className="absolute top-0 -inset-full h-full w-1/2 z-50 block transform -skew-x-12 bg-gradient-to-r from-transparent to-white/15 opacity-50 animate-shine" />
-                   
-                   <span className="text-5.5xl animate-bounce">🏆</span>
+            {showWinnerBanner && gameState?.lastTrickWinner && (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="fixed inset-0 bg-slate-950/80 backdrop-blur-[3px] z-50 flex flex-col justify-center items-center pointer-events-auto"
+              >
+                <motion.div
+                  initial={{ scale: 0.85, y: 30 }}
+                  animate={{ scale: 1.15, y: 0 }}
+                  exit={{ scale: 0.85, y: 30 }}
+                  className="bg-slate-900/95 border-2 border-amber-500 px-10 py-8 rounded-3xl shadow-[0_0_50px_rgba(234,179,8,0.85)] flex flex-col items-center gap-3.5 text-center max-w-sm relative overflow-hidden"
+                >
+                  {/* Gold Borders */}
+                  <div className="absolute top-2 left-2 w-3.5 h-3.5 border-t-2 border-l-2 border-amber-500" />
+                  <div className="absolute top-2 right-2 w-3.5 h-3.5 border-t-2 border-r-2 border-amber-500" />
+                  <div className="absolute bottom-2 left-2 w-3.5 h-3.5 border-b-2 border-l-2 border-amber-500" />
+                  <div className="absolute bottom-2 right-2 w-3.5 h-3.5 border-b-2 border-r-2 border-amber-500" />
+                  
+                  <div className="absolute top-0 -inset-full h-full w-1/2 z-50 block transform -skew-x-12 bg-gradient-to-r from-transparent to-white/15 opacity-50 animate-shine" />
+                  
+                  <span className="text-5.5xl animate-bounce">🏆</span>
 
-                   {/* Winner Avatar circle initials */}
-                   <div className="w-16 h-16 rounded-full bg-slate-800 border-[2.5px] border-amber-400 flex items-center justify-center text-xl font-black text-amber-400 shadow-md">
-                     {gameState.lastTrickWinner.playerName.substring(0, 2).toUpperCase()}
-                   </div>
+                  {/* Winner Avatar circle initials */}
+                  <div className="w-16 h-16 rounded-full bg-slate-800 border-[2.5px] border-amber-400 flex items-center justify-center text-xl font-black text-amber-400 shadow-md">
+                    {gameState?.lastTrickWinner?.playerName?.substring(0, 2).toUpperCase()}
+                  </div>
 
-                   <span className="text-3xl font-black text-amber-400 uppercase tracking-widest drop-shadow-md mt-1">
-                     {gameState.lastTrickWinner.playerName}
-                   </span>
-                   
-                   <span className="text-[10px] text-slate-300 font-extrabold tracking-widest uppercase mb-1">
-                     WON THIS HAND
-                   </span>
+                  <span className="text-3xl font-black text-amber-400 uppercase tracking-widest drop-shadow-md mt-1">
+                    {gameState?.lastTrickWinner?.playerName}
+                  </span>
+                  
+                  <span className="text-[10px] text-slate-300 font-extrabold tracking-widest uppercase mb-1">
+                    WON THIS HAND
+                  </span>
 
-                   {/* Actual Visual Card Preview */}
-                   {renderCardGraphic(gameState.lastTrickWinner.winningCard, "w-[75px] h-[110px]")}
-                 </motion.div>
-               </motion.div>
-             )}
+                  {/* Actual Visual Card Preview */}
+                  {renderCardGraphic(gameState?.lastTrickWinner?.winningCard, "w-[75px] h-[110px]")}
+                </motion.div>
+              </motion.div>
+            )}
            </AnimatePresence>
 
         {/* Table Container wrapper that doesn't hide overflow */}
@@ -699,11 +743,11 @@ export default function GameBoard({ onNavigate }) {
 
             {/* Card pile with spring landing and shrink offset */}
             <div className="w-[150px] h-[150px] rounded-full bg-slate-950/5 relative flex justify-center items-center pointer-events-none">
-              {playedCards.map((play) => {
+              {(playedCards || []).map((play) => {
                 const offset = getPlayedCardOffset(play.playerId);
                 const initialOffset = getPlayedCardInitialOffset(play.playerId);
                 const isWinningCard = winningPlay && winningPlay.playerId === play.playerId;
-                const pName = players.find(p => p.id === play.playerId)?.name || "Bot";
+                const pName = (gameStatePlayers || []).find(p => p.id === play.playerId)?.name || "Bot";
                 const isRed = play.card.suit === "HEART" || play.card.suit === "DIAMOND";
                 
                 return (
@@ -769,12 +813,12 @@ export default function GameBoard({ onNavigate }) {
           {orderedPlayers.map((player, idx) => {
             const coords = getPolarCoords(idx, N);
             const isTurn = player.id === activePlayer?.id;
-            const playerBid = bids[player.id];
+            const playerBid = bids?.[player.id];
             const hasBid = playerBid !== undefined;
-            const playerTricks = tricksWon[player.id] || 0;
+            const playerTricks = tricksWon?.[player.id] || 0;
             const isMe = player.id === myPlayerId;
             
-            const opponentHandSize = hands[player.id]?.length || 0;
+            const opponentHandSize = hands?.[player.id]?.length || 0;
 
             return (
               <div

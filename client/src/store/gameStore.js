@@ -103,6 +103,7 @@ export const useGameStore = create((set, get) => ({
     socket.off("player-left");
     socket.off("settings-updated");
     socket.off("room-updated");
+    socket.off("room-state");
     socket.off("game-started");
     socket.off("cards-dealt");
     socket.off("bid-placed");
@@ -182,6 +183,22 @@ export const useGameStore = create((set, get) => ({
         settings: room.settings,
         gameState: room.gameState
       });
+    });
+
+    socket.on("room-state", (room) => {
+      if (room) {
+        set({
+          roomCode: room.roomCode,
+          hostId: room.hostId,
+          hostName: room.hostName,
+          status: room.status,
+          players: room.players,
+          settings: room.settings,
+          gameState: room.gameState
+        });
+      } else {
+        set({ errorMessage: "Room not found or inactive." });
+      }
     });
 
     socket.on("game-started", (gameState) => {
@@ -297,6 +314,14 @@ export const useGameStore = create((set, get) => ({
       set({ myPlayerId: socket.id });
     }
     socket.emit("join-room", { roomCode, name });
+  },
+
+  getRoomStateOnline: (roomCode) => {
+    get().connectSocket();
+    if (socket.connected) {
+      set({ myPlayerId: socket.id });
+    }
+    socket.emit("get-room-state", { roomCode });
   },
 
   changeSettingsOnline: (settings) => {
