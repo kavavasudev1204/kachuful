@@ -10,6 +10,31 @@ import {
 } from "../controllers/roomController.js";
 import { resolveTrick, continueRound, placeBid, playCard } from "../gameEngine/gameManager.js";
 
+function serializeRoom(room) {
+  if (!room) return null;
+  const gs = room.gameState || {};
+  const dealerPlayer = gs.players && gs.dealerIndex !== undefined ? gs.players[gs.dealerIndex] : null;
+  return {
+    roomCode: room.roomCode,
+    hostId: room.hostId,
+    hostName: room.hostName,
+    status: room.status,
+    isPublic: room.isPublic,
+    settings: room.settings,
+    players: room.players || [],
+    gameState: room.gameState,
+    
+    // Flattened properties for easy verification
+    hands: gs.hands || {},
+    scores: gs.scores || {},
+    bids: gs.bids || {},
+    trump: gs.trump || null,
+    round: gs.round || 1,
+    dealer: dealerPlayer || null,
+    phase: gs.phase || room.status || "waiting"
+  };
+}
+
 export default function registerSocketHandlers(io) {
   io.on("connection", (socket) => {
     console.log(`[Socket] Client connected: ${socket.id}`);
@@ -27,7 +52,7 @@ export default function registerSocketHandlers(io) {
         }
         const room = createRoom(socket.id, name.trim());
         socket.join(room.roomCode);
-        socket.emit("room-created", room);
+        socket.emit("room-created", serializeRoom(room));
         console.log(`[Socket] Room created: ${room.roomCode} by ${name}`);
       } catch (err) {
         sendError("create-room", err.message);
@@ -60,22 +85,24 @@ export default function registerSocketHandlers(io) {
           // Reconnection flow (updates socket ID and maps game state)
           const room = handlePlayerReconnect(code, name.trim(), socket.id);
           socket.join(code);
+          console.log(`[Socket] Sockets in room ${code} after rejoin:`, io.sockets.adapter.rooms.get(code));
           
           io.to(code).emit("player-reconnected", {
-            room,
+            room: serializeRoom(room),
             playerId: socket.id,
             playerName: name.trim()
           });
-          io.to(code).emit("room-updated", room);
+          io.to(code).emit("room-updated", serializeRoom(room));
           
           console.log(`[Socket] Player ${name} reconnected in Room ${code}`);
         } else {
           // Normal join flow
           const room = joinRoom(code, socket.id, name.trim());
           socket.join(code);
+          console.log(`[Socket] Sockets in room ${code} after join:`, io.sockets.adapter.rooms.get(code));
           
-          io.to(code).emit("player-joined", room);
-          io.to(code).emit("room-updated", room);
+          io.to(code).emit("player-joined", serializeRoom(room));
+          io.to(code).emit("room-updated", serializeRoom(room));
           console.log(`[Socket] Player ${name} joined Room ${code}`);
         }
       } catch (err) {
@@ -87,8 +114,8 @@ export default function registerSocketHandlers(io) {
     socket.on("change-settings", ({ roomCode, settings }) => {
       try {
         const room = changeRoomSettings(roomCode, socket.id, settings);
-        io.to(roomCode.toUpperCase()).emit("settings-updated", room);
-        io.to(roomCode.toUpperCase()).emit("room-updated", room);
+        io.to(roomCode.toUpperCase()).emit("settings-updated", serializeRoom(room));
+        io.to(roomCode.toUpperCase()).emit("room-updated", serializeRoom(room));
       } catch (err) {
         sendError("change-settings", err.message);
       }
@@ -98,20 +125,38 @@ export default function registerSocketHandlers(io) {
     socket.on("start-game", ({ roomCode }) => {
       try {
         const room = startGame(roomCode, socket.id);
+        const codeUpper = room.roomCode.toUpperCase();
         
+        // Print io.sockets.adapter.rooms.get(roomCode) as requested by step 6
+        const roomSockets = io.sockets.adapter.rooms.get(codeUpper);
+        console.log("io.sockets.adapter.rooms.get(roomCode)");
+        console.log(roomSockets);
+
         // Expose debugging logs as requested by STEP 1 and STEP 3
         console.log("START GAME");
-        console.log("ROOM STATE:", room);
+        console.log("ROOM STATE:", serializeRoom(room));
         console.log("PLAYERS LIST:", room.players);
         console.log("GAME STATE:", room.gameState);
-        console.log("SOCKET ROOM MEMBERSHIP:", io.sockets.adapter.rooms.get(room.roomCode));
+
+        // Verify every socket is inside the room
+        const playerSocketIds = room.players.map(p => p.id);
+        const allInRoom = playerSocketIds.every(sid => roomSockets && roomSockets.has(sid));
+        console.log(`[Verification] Every player socket inside room ${codeUpper}:`, allInRoom);
+        if (!allInRoom) {
+          console.warn("[Verification Warning] Some player socket is NOT in the room adapter!");
+          playerSocketIds.forEach(sid => {
+            console.log(`Socket ${sid} in room:`, roomSockets ? roomSockets.has(sid) : false);
+          });
+        }
+
+        console.log("[Verification] Emitting game-started to room:", codeUpper);
 
         // Notify players that the game has started by sending gameState
         io.to(room.roomCode).emit("game-started", room.gameState);
         
         // Also emit cards-dealt right after to indicate hand deals
         io.to(room.roomCode).emit("cards-dealt", room.gameState);
-        io.to(room.roomCode).emit("room-updated", room);
+        io.to(room.roomCode).emit("room-updated", serializeRoom(room));
         
         console.log(`[Socket] Game started in Room ${room.roomCode}`);
       } catch (err) {
@@ -236,10 +281,10 @@ export default function registerSocketHandlers(io) {
         
         if (updatedRoom) {
           io.to(code).emit("player-left", {
-            room: updatedRoom,
+            room: serializeRoom(updatedRoom),
             playerId: playerToRemoveId
           });
-          io.to(code).emit("room-updated", updatedRoom);
+          io.to(code).emit("room-updated", serializeRoom(updatedRoom));
         } else {
           io.to(code).emit("room-closed", { message: "Room closed. Host left or all players disconnected." });
         }
@@ -249,16 +294,21 @@ export default function registerSocketHandlers(io) {
     });
 
     // 8.5 GET ROOM STATE
-    socket.on("get-room-state", ({ roomCode }) => {
+    socket.on("get-room-state", (payload) => {
       try {
-        if (!roomCode) return sendError("get-room-state", "Room code is required.");
-        const code = roomCode.trim().toUpperCase();
-        const room = getRoom(code);
-        if (room) {
-          socket.emit("room-state", room);
-        } else {
-          socket.emit("room-state", null);
+        let code = "";
+        if (typeof payload === "string") {
+          code = payload;
+        } else if (payload && payload.roomCode) {
+          code = payload.roomCode;
         }
+        if (!code) return sendError("get-room-state", "Room code is required.");
+        
+        const cleanCode = code.trim().toUpperCase();
+        const room = getRoom(cleanCode);
+        console.log(`[Socket] get-room-state for Room ${cleanCode}:`, room);
+        console.log(`[Socket] Sockets in room ${cleanCode}:`, io.sockets.adapter.rooms.get(cleanCode));
+        socket.emit("room-state", serializeRoom(room));
       } catch (err) {
         sendError("get-room-state", err.message);
       }
@@ -282,12 +332,12 @@ export default function registerSocketHandlers(io) {
             room.hostName = player.name;
           }
           io.to(code).emit("player-name-changed", {
-            room,
+            room: serializeRoom(room),
             oldName,
             newName: player.name,
             playerId: socket.id
           });
-          io.to(code).emit("room-updated", room);
+          io.to(code).emit("room-updated", serializeRoom(room));
         }
       } catch (err) {
         sendError("change-name", err.message);
@@ -322,9 +372,9 @@ export default function registerSocketHandlers(io) {
         io.to(room.roomCode).emit("player-disconnected", {
           playerId: socket.id,
           playerName: name,
-          room
+          room: serializeRoom(room)
         });
-        io.to(room.roomCode).emit("room-updated", room);
+        io.to(room.roomCode).emit("room-updated", serializeRoom(room));
       }
     });
   });

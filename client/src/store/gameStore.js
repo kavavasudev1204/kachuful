@@ -186,6 +186,7 @@ export const useGameStore = create((set, get) => ({
     });
 
     socket.on("room-state", (room) => {
+      console.log("room-state", room);
       if (room) {
         set({
           roomCode: room.roomCode,
@@ -202,11 +203,13 @@ export const useGameStore = create((set, get) => ({
     });
 
     socket.on("game-started", (gameState) => {
+      console.log("game-started", gameState);
       get().setGameState(gameState);
       sounds.playDeal();
     });
 
     socket.on("cards-dealt", (gameState) => {
+      console.log("cards-dealt", gameState);
       set({ gameState });
       sounds.playDeal();
     });

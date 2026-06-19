@@ -62,6 +62,7 @@ export default function GameBoard({ onNavigate }) {
     leaveRoomOffline,
     isOffline,
     accessibilityMode,
+    toggleAccessibilityMode,
     errorMessage,
     clearError,
     setPlayerName,
@@ -139,13 +140,17 @@ export default function GameBoard({ onNavigate }) {
 
   const [roomLoadFailed, setRoomLoadFailed] = useState(false);
 
-  // 1. Auto-fetch room/game state on mount if missing
+  // STEP 3: Automatic Recovery Hook
   useEffect(() => {
-    if (!gameState && paramRoomCode && paramRoomCode !== "OFFLINE" && !isOffline) {
-      console.log(`[GameBoard] Missing gameState, fetching from server for room: ${paramRoomCode}`);
-      getRoomStateOnline(paramRoomCode);
+    if (!room) {
+      const activeCode = roomCode || paramRoomCode;
+      if (activeCode) {
+        import("../socket/socket").then(({ socket }) => {
+          socket.emit("get-room-state", activeCode);
+        });
+      }
     }
-  }, [gameState, paramRoomCode, isOffline, getRoomStateOnline]);
+  }, []);
 
   // 2. Timeout for state loading fallback
   useEffect(() => {
@@ -331,45 +336,64 @@ export default function GameBoard({ onNavigate }) {
   const gameStatePlayers = gameState?.players || players || [];
   const activePlayer = gameStatePlayers[currentTurn];
   const isMyTurn = activePlayer?.id === myPlayerId;
-  const myHand = hands?.[myPlayerId] || [];
+  
+  const dealerPlayer = gameState?.players && gameState?.dealerIndex !== undefined ? gameState.players[gameState.dealerIndex] : null;
+  const room = roomCode || paramRoomCode ? {
+    roomCode: roomCode || paramRoomCode,
+    players: gameStatePlayers,
+    hands: gameState?.hands || {},
+    scores: gameState?.scores || {},
+    bids: gameState?.bids || {},
+    trump: gameState?.trump || null,
+    round: gameState?.round || 1,
+    dealer: dealerPlayer || null,
+    phase: gameState?.phase || "waiting"
+  } : null;
+  const hand = hands?.[myPlayerId];
+  const myHand = hand || [];
+  const gamePhase = phase;
+
+  // Print logs after start game when state updates
+  useEffect(() => {
+    if (gameState) {
+      console.log("game-started", gameState);
+      console.log("room-state", room);
+      console.log("hand", hand);
+      console.log("trump", trump);
+      console.log("phase", phase);
+    }
+  }, [gameState, roomCode, myPlayerId]);
 
   // Debug logs as requested by STEP 1
-  console.log("ROOM", roomCode || paramRoomCode);
-  console.log("GAME", gameState);
-  console.log("PLAYERS", gameStatePlayers);
-  console.log("HAND", myHand);
-  console.log("PHASE", phase);
+  console.log("ROOM", room);
+  console.log("PLAYERS", room?.players);
+  console.log("GAME STATE", gameState);
+  console.log("HAND", hand);
+  console.log("PHASE", gamePhase);
+  console.log("PLAYER ID", myPlayerId);
 
-  // STEP 5: Loading safety gates to prevent crashes
-  if (!roomCode && !paramRoomCode) {
+  // STEP 6: Loading Screen checks
+  if (!room) {
     return (
       <div className="min-h-screen flex flex-col justify-center items-center bg-slate-950 text-slate-200">
         <RefreshCw className="w-8 h-8 animate-spin text-amber-500 mb-4" />
-        <span className="text-xs font-black tracking-widest text-slate-400 uppercase font-sans">Loading Room details...</span>
+        <span className="text-xs font-black tracking-widest text-slate-400 uppercase font-sans">Loading Room...</span>
       </div>
     );
   }
-  if (!gameStatePlayers || gameStatePlayers.length === 0) {
+  if (!room.players || room.players.length === 0) {
     return (
       <div className="min-h-screen flex flex-col justify-center items-center bg-slate-950 text-slate-200">
         <RefreshCw className="w-8 h-8 animate-spin text-amber-500 mb-4" />
-        <span className="text-xs font-black tracking-widest text-slate-400 uppercase font-sans font-bold">Synchronizing Room Players...</span>
+        <span className="text-xs font-black tracking-widest text-slate-400 uppercase font-sans font-bold">Loading Players...</span>
       </div>
     );
   }
-  if (!hands) {
+  if (!hand) {
     return (
       <div className="min-h-screen flex flex-col justify-center items-center bg-slate-950 text-slate-200">
         <RefreshCw className="w-8 h-8 animate-spin text-amber-500 mb-4" />
-        <span className="text-xs font-black tracking-widest text-slate-400 uppercase font-sans">Loading Player Hands...</span>
-      </div>
-    );
-  }
-  if (!myHand) {
-    return (
-      <div className="min-h-screen flex flex-col justify-center items-center bg-slate-950 text-slate-200">
-        <RefreshCw className="w-8 h-8 animate-spin text-amber-500 mb-4" />
-        <span className="text-xs font-black tracking-widest text-slate-400 uppercase font-sans">Preparing Player Cards...</span>
+        <span className="text-xs font-black tracking-widest text-slate-400 uppercase font-sans">Loading Cards...</span>
       </div>
     );
   }
@@ -851,7 +875,7 @@ export default function GameBoard({ onNavigate }) {
           </div>
 
           {/* Player Avatars on circles outside the table felt */}
-          {orderedPlayers.map((player, idx) => {
+          {orderedPlayers?.map((player, idx) => {
             const coords = getPolarCoords(idx, N);
             const isTurn = player.id === activePlayer?.id;
             const playerBid = bids?.[player.id];
@@ -946,7 +970,7 @@ export default function GameBoard({ onNavigate }) {
 
         {/* Fanned arc dealing with 3D spring flips */}
         <div className="w-full max-w-[95vw] sm:max-w-xl h-full mx-auto relative flex justify-center items-end pb-2 overflow-visible">
-          {myHand.map((card, idx) => {
+          {myHand?.map((card, idx) => {
             const fan = getFanStyle(idx, myHand.length);
             const playable = isCardPlayable(card);
             const isLocked = phase === "playing" && !playable;
@@ -1092,7 +1116,7 @@ export default function GameBoard({ onNavigate }) {
               <div className="mb-5">
                 <span className="block text-[9px] font-black text-slate-500 uppercase tracking-widest text-center mb-1.5">Your Hand Preview</span>
                 <div className="flex gap-1.5 justify-center overflow-x-auto py-2 px-1.5 no-scrollbar bg-slate-950/40 rounded-2xl border border-slate-900/60 max-h-20">
-                  {myHand.map((card, cIdx) => {
+                  {myHand?.map((card, cIdx) => {
                     const isRed = card.suit === "HEART" || card.suit === "DIAMOND";
                     return (
                       <div

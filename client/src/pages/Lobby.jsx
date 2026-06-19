@@ -14,7 +14,9 @@ export default function Lobby({ onNavigate }) {
     startGameOnline,
     leaveRoomOnline,
     errorMessage,
-    clearError
+    clearError,
+    status,
+    gameState
   } = useGameStore();
 
   const [copied, setCopied] = useState(false);
@@ -77,6 +79,24 @@ export default function Lobby({ onNavigate }) {
   };
 
   const handleStartGame = () => {
+    // Construct room state
+    const dealerPlayer = gameState?.players && gameState?.dealerIndex !== undefined ? gameState.players[gameState.dealerIndex] : null;
+    const room = {
+      roomCode,
+      players,
+      hands: gameState?.hands || {},
+      scores: gameState?.scores || {},
+      bids: gameState?.bids || {},
+      trump: gameState?.trump || null,
+      round: gameState?.round || 1,
+      dealer: dealerPlayer,
+      phase: gameState?.phase || status || "waiting"
+    };
+
+    console.log(room);
+    console.log(players);
+    console.log(socket.id);
+    
     startGameOnline();
   };
 
