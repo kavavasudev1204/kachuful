@@ -104,28 +104,19 @@ body,
   overflow: hidden !important;
 }
 
-/* Dynamic responsive circular felt table size */
+/* Dynamic responsive circular felt table size optimized for both aspect ratios */
 .responsive-table-container {
-  width: 70vh;
-  height: 70vh;
-  max-width: 70vh;
-  max-height: 70vh;
+  width: 78vw;
+  height: 78vw;
+  max-width: 360px;
+  max-height: 360px;
 }
 
-@media (max-width: 1024px) {
+@media (min-aspect-ratio: 1/1) {
   .responsive-table-container {
-    width: 65vh;
-    height: 65vh;
-    max-width: 65vh;
-    max-height: 65vh;
-  }
-}
-
-@media (max-width: 768px), (max-height: 500px) {
-  .responsive-table-container {
-    width: 55vh;
-    height: 55vh;
-    max-width: 55vh;
-    max-height: 55vh;
+    width: 50vh;
+    height: 50vh;
+    max-width: 500px;
+    max-height: 500px;
   }
 }

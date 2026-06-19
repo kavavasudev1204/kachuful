@@ -238,27 +238,7 @@ export default function GameBoard({ onNavigate }) {
     onNavigate("home");
   };
 
-  // Portrait Lock Overlay
-  if (isPortrait) {
-    return (
-      <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-xl z-[9999] flex flex-col justify-center items-center text-center p-6 text-slate-100 select-none">
-        <motion.div
-          animate={{ rotate: [0, 360] }}
-          transition={{ repeat: Infinity, duration: 3, ease: "linear" }}
-          className="w-20 h-20 bg-slate-900 border border-slate-800 text-amber-500 rounded-3xl flex items-center justify-center mb-6 shadow-xl"
-        >
-          <span className="text-4xl">🔄</span>
-        </motion.div>
-        <h2 className="text-xl font-extrabold text-slate-200 tracking-wider mb-2 uppercase">🔄 Rotate Device</h2>
-        <p className="text-amber-500 text-sm max-w-xs mb-1 font-bold">
-          Landscape Mode Required
-        </p>
-        <span className="text-slate-400 text-xs mt-2 tracking-wide">
-          Please rotate your device to continue playing.
-        </span>
-      </div>
-    );
-  }
+  // Landscape orientation lock check has been removed in favor of primary Portrait Mode.
 
   const showNamePrompt = paramRoomCode && paramRoomCode !== "OFFLINE" && !isOffline && !localStorage.getItem("playerName") && !roomCode;
 
@@ -290,7 +270,7 @@ export default function GameBoard({ onNavigate }) {
           }} className="flex flex-col gap-4">
             <input
               type="text"
-              placeholder="e.g. Vasudev"
+              placeholder="Your Name"
               maxLength={15}
               value={namePromptInput}
               onChange={(e) => setNamePromptInput(e.target.value)}
@@ -462,10 +442,15 @@ export default function GameBoard({ onNavigate }) {
     const angles = getSeatingAngles(total);
     const angle = angles[index % total];
     const rad = (angle * Math.PI) / 180;
-    // 68% radius to place player avatars outside the 50% felt table border
+    
+    // In portrait mode, we reduce the horizontal radius to fit within narrow screen width
+    // and keep vertical radius slightly larger to utilize screen height.
+    const radiusX = 63;
+    const radiusY = 70;
+    
     return {
-      left: `calc(50% + ${68 * Math.cos(rad)}%)`,
-      top: `calc(50% + ${68 * Math.sin(rad)}%)`,
+      left: `calc(50% + ${radiusX * Math.cos(rad)}%)`,
+      top: `calc(50% + ${radiusY * Math.sin(rad)}%)`,
       angle
     };
   };
@@ -552,11 +537,11 @@ export default function GameBoard({ onNavigate }) {
     onNavigate("home");
   };
 
-  // Card dimensions ratios
-  const widthClass = accessibilityMode ? "w-[110px]" : "w-[90px]";
-  const heightClass = accessibilityMode ? "h-[160px]" : "h-[130px]";
-  const tableWidthClass = "w-[70px]";
-  const tableHeightClass = "h-[100px]";
+  // Card dimensions ratios responsive scaling for mobile viewports
+  const widthClass = accessibilityMode ? "w-[75px] sm:w-[110px]" : "w-[60px] sm:w-[90px]";
+  const heightClass = accessibilityMode ? "h-[110px] sm:h-[160px]" : "h-[90px] sm:h-[130px]";
+  const tableWidthClass = "w-[50px] sm:w-[70px]";
+  const tableHeightClass = "h-[72px] sm:h-[100px]";
 
   // Fan calculations
   const getFanStyle = (idx, total) => {
@@ -569,7 +554,7 @@ export default function GameBoard({ onNavigate }) {
     const centerIdx = (total - 1) / 2;
     const distanceFromCenter = idx - centerIdx;
     
-    const horizontalSpacing = total > 10 ? 18 : total > 7 ? 24 : 32;
+    const horizontalSpacing = total > 10 ? (accessibilityMode ? 16 : 12) : total > 7 ? (accessibilityMode ? 20 : 16) : (accessibilityMode ? 28 : 22);
     const xOffset = distanceFromCenter * horizontalSpacing;
     const archHeightMultiplier = total > 10 ? 1.5 : 2.5;
     const yOffset = Math.pow(distanceFromCenter, 2) * archHeightMultiplier;
@@ -1064,7 +1049,7 @@ export default function GameBoard({ onNavigate }) {
                   playable
                     ? "border-emerald-400 ring-2 ring-emerald-500/20 shadow-[0_0_20px_rgba(34,197,94,0.65)] bg-white playable-card-pulse"
                     : isLocked
-                    ? "opacity-35 grayscale cursor-not-allowed border-slate-300 bg-white pointer-events-none"
+                    ? "opacity-30 brightness-50 grayscale cursor-not-allowed border-slate-300 bg-white pointer-events-none"
                     : "border-slate-250 bg-white"
                 }`}
                 style={{

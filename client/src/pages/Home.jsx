@@ -156,7 +156,7 @@ export default function Home({ onNavigate }) {
               }}
               className="w-full mb-3 bg-slate-900 hover:bg-slate-850 text-slate-200 border border-slate-700 hover:border-slate-600 font-bold py-3 px-4 rounded-xl transition-all duration-200 flex justify-center items-center gap-2 outline-none accessibility-focus text-sm tracking-wider"
             >
-              <Play className="w-4 h-4" /> ENTER ROOM CODE
+              <Play className="w-4 h-4" /> JOIN ROOM
             </button>
           ) : (
             <form onSubmit={handleJoinRoom} className="mb-3 p-4 bg-slate-900/50 border border-slate-800 rounded-2xl">
