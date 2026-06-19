@@ -207,8 +207,8 @@ export default function Home({ onNavigate }) {
               </label>
               <input
                 type="range"
-                min={2}
-                max={7}
+                min={1}
+                max={5}
                 value={offlineBotCount}
                 onChange={(e) => setOfflineBotCount(Number(e.target.value))}
                 className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-amber-500 mb-4 outline-none"

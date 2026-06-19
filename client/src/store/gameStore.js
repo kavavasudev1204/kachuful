@@ -78,7 +78,7 @@ export const useGameStore = create((set, get) => ({
   connectSocket: () => {
     if (!socket.connected) {
       socket.connect();
-      set({ isConnected: true, isOffline: false });
+      set({ isOffline: false });
       
       // Register socket listeners inside store
       get().registerSocketEvents();

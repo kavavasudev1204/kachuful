@@ -142,15 +142,68 @@ export default function GameBoard({ onNavigate }) {
 
   // STEP 3: Automatic Recovery Hook
   useEffect(() => {
-    if (!room) {
-      const activeCode = roomCode || paramRoomCode;
-      if (activeCode) {
-        import("../socket/socket").then(({ socket }) => {
-          socket.emit("get-room-state", activeCode);
-        });
-      }
+    const activeCode = roomCode || paramRoomCode;
+    if (!gameState && activeCode) {
+      import("../socket/socket").then(({ socket }) => {
+        socket.emit("get-room-state", activeCode);
+      });
     }
   }, []);
+
+  // Computed game state values (defined here to satisfy Rules of Hooks)
+  const {
+    round,
+    maxRounds,
+    cardsPerPlayer,
+    currentTurn,
+    trump,
+    hands,
+    bids,
+    tricksWon,
+    playedCards,
+    phase
+  } = gameState || {};
+
+  const gameStatePlayers = gameState?.players || players || [];
+  const activePlayer = gameStatePlayers[currentTurn];
+  const isMyTurn = activePlayer?.id === myPlayerId;
+  
+  const dealerPlayer = gameState?.players && gameState?.dealerIndex !== undefined ? gameState.players[gameState.dealerIndex] : null;
+  const room = roomCode || paramRoomCode ? {
+    roomCode: roomCode || paramRoomCode,
+    players: gameStatePlayers,
+    hands: gameState?.hands || {},
+    scores: gameState?.scores || {},
+    bids: gameState?.bids || {},
+    trump: gameState?.trump || null,
+    round: gameState?.round || 1,
+    dealer: dealerPlayer || null,
+    phase: gameState?.phase || "waiting"
+  } : null;
+  const hand = hands?.[myPlayerId];
+  const myHand = hand || [];
+  const gamePhase = phase;
+
+  // Print logs after start game when state updates (placed before early returns)
+  useEffect(() => {
+    if (gameState && process.env.NODE_ENV === "development") {
+      console.log("game-started", gameState);
+      console.log("room-state", room);
+      console.log("hand", hand);
+      console.log("trump", trump);
+      console.log("phase", phase);
+    }
+  }, [gameState, roomCode, myPlayerId, room, hand, trump, phase]);
+
+  // Clear error message automatically after 4 seconds
+  useEffect(() => {
+    if (errorMessage) {
+      const timer = setTimeout(() => {
+        clearError();
+      }, 4000);
+      return () => clearTimeout(timer);
+    }
+  }, [errorMessage, clearError]);
 
   // 2. Timeout for state loading fallback
   useEffect(() => {
@@ -320,57 +373,7 @@ export default function GameBoard({ onNavigate }) {
     );
   }
 
-  const {
-    round,
-    maxRounds,
-    cardsPerPlayer,
-    currentTurn,
-    trump,
-    hands,
-    bids,
-    tricksWon,
-    playedCards,
-    phase
-  } = gameState || {};
-
-  const gameStatePlayers = gameState?.players || players || [];
-  const activePlayer = gameStatePlayers[currentTurn];
-  const isMyTurn = activePlayer?.id === myPlayerId;
-  
-  const dealerPlayer = gameState?.players && gameState?.dealerIndex !== undefined ? gameState.players[gameState.dealerIndex] : null;
-  const room = roomCode || paramRoomCode ? {
-    roomCode: roomCode || paramRoomCode,
-    players: gameStatePlayers,
-    hands: gameState?.hands || {},
-    scores: gameState?.scores || {},
-    bids: gameState?.bids || {},
-    trump: gameState?.trump || null,
-    round: gameState?.round || 1,
-    dealer: dealerPlayer || null,
-    phase: gameState?.phase || "waiting"
-  } : null;
-  const hand = hands?.[myPlayerId];
-  const myHand = hand || [];
-  const gamePhase = phase;
-
-  // Print logs after start game when state updates
-  useEffect(() => {
-    if (gameState) {
-      console.log("game-started", gameState);
-      console.log("room-state", room);
-      console.log("hand", hand);
-      console.log("trump", trump);
-      console.log("phase", phase);
-    }
-  }, [gameState, roomCode, myPlayerId]);
-
-  // Debug logs as requested by STEP 1
-  console.log("ROOM", room);
-  console.log("PLAYERS", room?.players);
-  console.log("GAME STATE", gameState);
-  console.log("HAND", hand);
-  console.log("PHASE", gamePhase);
-  console.log("PLAYER ID", myPlayerId);
+  // Game computed variables and logging hooks have been moved to the top of the component to respect React Rules of Hooks.
 
   // STEP 6: Loading Screen checks
   if (!room) {
@@ -636,7 +639,7 @@ export default function GameBoard({ onNavigate }) {
 
   const renderTrumpTextRepresentation = (suit) => {
     const isRed = suit === "HEART" || suit === "DIAMOND";
-    const suitName = suit === "HEART" ? "♠ HEART" : suit === "DIAMOND" ? "♦ DIAMOND" : suit === "SPADE" ? "♠ SPADE" : "♣ CLUB";
+    const suitName = suit === "HEART" ? "♥ HEART" : suit === "DIAMOND" ? "♦ DIAMOND" : suit === "SPADE" ? "♠ SPADE" : "♣ CLUB";
     if (isRed) {
       return (
         <span className="text-red-500 font-black text-xs flex items-center justify-center gap-1 leading-none">
@@ -728,6 +731,26 @@ export default function GameBoard({ onNavigate }) {
           </span>
         </div>
 
+        {/* Error Toast */}
+        <AnimatePresence>
+          {(cardPlayError || errorMessage) && (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              className="mb-4 bg-red-950/90 border border-red-500/30 text-red-200 px-4 py-2 rounded-2xl text-[10px] font-bold shadow-lg z-20 flex items-center gap-2"
+            >
+              <span>⚠️ {cardPlayError || errorMessage}</span>
+              <button
+                onClick={() => { setCardPlayError(""); clearError(); }}
+                className="text-red-400 hover:text-red-300 ml-1 font-extrabold focus:outline-none"
+              >
+                ✕
+              </button>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         {/* Circular Table Felt with Weave Felt Texture */}
            {/* TRICK WINNER POPUP MODAL */}
            <AnimatePresence>
@@ -764,7 +787,7 @@ export default function GameBoard({ onNavigate }) {
                   </span>
                   
                   <span className="text-[10px] text-slate-300 font-extrabold tracking-widest uppercase mb-1">
-                    WON THIS HAND
+                    WINS THIS TRICK
                   </span>
 
                   {/* Actual Visual Card Preview */}
@@ -926,7 +949,11 @@ export default function GameBoard({ onNavigate }) {
 
                 {/* Score text */}
                 <div className="bg-slate-950/80 border border-slate-850 px-2 py-0.5 rounded-full text-[8px] font-black tracking-wider text-slate-400 mt-1 shadow-sm uppercase">
-                  {playerTricks} / {hasBid ? playerBid : "?"}
+                  {phase === "bidding" ? (
+                    isMe ? (hasBid ? `0 / ${playerBid}` : "0 / ?") : (hasBid ? "✓" : "⏳")
+                  ) : (
+                    `${playerTricks} / ${hasBid ? playerBid : "?"}`
+                  )}
                 </div>
 
                 {!isMe && opponentHandSize > 0 && (

@@ -8,12 +8,97 @@ import {
   handlePlayerDisconnect,
   handlePlayerReconnect
 } from "../controllers/roomController.js";
-import { resolveTrick, continueRound, placeBid, playCard } from "../gameEngine/gameManager.js";
+import {
+  resolveTrick,
+  continueRound,
+  placeBid,
+  playCard,
+  getBotBid,
+  getBotCardToPlay
+} from "../gameEngine/gameManager.js";
 
-function serializeRoom(room) {
+// Helper to serialize GameState for a specific player (hiding opponents' private info)
+function serializeGameStateForPlayer(gameState, playerId) {
+  if (!gameState) return null;
+
+  // Shallow clone the main gameState structure
+  const serialized = { ...gameState };
+
+  // Clone players array
+  if (gameState.players) {
+    serialized.players = gameState.players.map(p => ({ ...p }));
+  }
+
+  // Sanitize hands: only show the card details for the requesting player
+  if (gameState.hands) {
+    const sanitizedHands = {};
+    Object.keys(gameState.hands).forEach(pId => {
+      if (pId === playerId) {
+        sanitizedHands[pId] = gameState.hands[pId];
+      } else {
+        // Send dummy card representations to preserve the length but hide ranks/suits
+        sanitizedHands[pId] = (gameState.hands[pId] || []).map(() => ({
+          suit: "HIDDEN",
+          rank: "HIDDEN",
+          isHidden: true
+        }));
+      }
+    });
+    serialized.hands = sanitizedHands;
+  }
+
+  // Sanitize bids: hide opponent bids during the bidding phase
+  if (gameState.phase === "bidding" && gameState.bids) {
+    const sanitizedBids = {};
+    Object.keys(gameState.bids).forEach(pId => {
+      if (pId === playerId) {
+        sanitizedBids[pId] = gameState.bids[pId];
+      } else {
+        // Set to true as a flag indicating a bid has been placed, but hide the number
+        sanitizedBids[pId] = true;
+      }
+    });
+    serialized.bids = sanitizedBids;
+
+    // Calculate forbiddenBid for the requesting player if it is their turn to bid
+    const activePlayer = gameState.players && gameState.players[gameState.currentTurn];
+    if (activePlayer && activePlayer.id === playerId) {
+      const priorBidsSum = Object.values(gameState.bids).reduce((sum, val) => sum + val, 0);
+      const bidsCount = Object.keys(gameState.bids).length;
+      const isLastPlayer = bidsCount === gameState.players.length - 1;
+      if (isLastPlayer && gameState.enableLastBidRestriction) {
+        serialized.forbiddenBid = gameState.cardsPerPlayer - priorBidsSum;
+      } else {
+        serialized.forbiddenBid = null;
+      }
+    } else {
+      serialized.forbiddenBid = null;
+    }
+  } else {
+    // If not in bidding phase, bids are public
+    if (gameState.bids) {
+      serialized.bids = { ...gameState.bids };
+    }
+    serialized.forbiddenBid = null;
+  }
+
+  // Clone scores and tricksWon
+  if (gameState.scores) {
+    serialized.scores = { ...gameState.scores };
+  }
+  if (gameState.tricksWon) {
+    serialized.tricksWon = { ...gameState.tricksWon };
+  }
+
+  return serialized;
+}
+
+// Helper to serialize Room for a specific player
+function serializeRoomForPlayer(room, playerId) {
   if (!room) return null;
-  const gs = room.gameState || {};
-  const dealerPlayer = gs.players && gs.dealerIndex !== undefined ? gs.players[gs.dealerIndex] : null;
+  const gs = room.gameState ? serializeGameStateForPlayer(room.gameState, playerId) : null;
+  const dealerPlayer = gs && gs.players && gs.dealerIndex !== undefined ? gs.players[gs.dealerIndex] : null;
+
   return {
     roomCode: room.roomCode,
     hostId: room.hostId,
@@ -22,22 +107,144 @@ function serializeRoom(room) {
     isPublic: room.isPublic,
     settings: room.settings,
     players: room.players || [],
-    gameState: room.gameState,
+    gameState: gs,
     
-    // Flattened properties for easy verification
-    hands: gs.hands || {},
-    scores: gs.scores || {},
-    bids: gs.bids || {},
-    trump: gs.trump || null,
-    round: gs.round || 1,
+    // Flattened properties for compatibility/verification
+    hands: gs ? gs.hands : {},
+    scores: gs ? gs.scores : (room.gameState?.scores || {}),
+    bids: gs ? gs.bids : {},
+    trump: gs ? gs.trump : null,
+    round: gs ? gs.round : 1,
     dealer: dealerPlayer || null,
-    phase: gs.phase || room.status || "waiting"
+    phase: gs ? gs.phase : (room.status || "waiting")
   };
+}
+
+// Helper to broadcast personalized events to all players in a room
+function broadcastToRoom(io, roomCode, event, payloadMaker) {
+  const room = getRoom(roomCode);
+  if (!room) return;
+  room.players.forEach(p => {
+    const s = io.sockets.sockets.get(p.id);
+    if (s) {
+      const data = typeof payloadMaker === "function" ? payloadMaker(p.id) : payloadMaker;
+      s.emit(event, data);
+    }
+  });
+}
+
+// Check and process turns for bots or disconnected players
+function checkAndProcessOfflineTurns(io, room) {
+  if (!room || !room.gameState || room.status !== "playing") return;
+  const gameState = room.gameState;
+  if (gameState.phase !== "bidding" && gameState.phase !== "playing") return;
+
+  const activePlayerIndex = gameState.currentTurn;
+  const activePlayer = gameState.players[activePlayerIndex];
+  if (!activePlayer) return;
+
+  const roomPlayer = room.players.find(p => p.id === activePlayer.id);
+  const isBotOrDisconnected = activePlayer.isBot || (roomPlayer && !roomPlayer.connected);
+
+  if (isBotOrDisconnected) {
+    if (process.env.DEBUG === "true") {
+      console.log(`[Socket] Auto-playing turn for ${activePlayer.name} (isBot: ${activePlayer.isBot}, disconnected: ${roomPlayer ? !roomPlayer.connected : true})`);
+    }
+    
+    if (gameState.phase === "bidding") {
+      const hand = gameState.hands[activePlayer.id] || [];
+      const priorBidsSum = Object.values(gameState.bids).reduce((sum, v) => sum + v, 0);
+      const bidsCount = Object.keys(gameState.bids).length;
+      const isLastPlayer = bidsCount === gameState.players.length - 1;
+      
+      const bid = getBotBid(
+        hand,
+        gameState.cardsPerPlayer,
+        gameState.trump,
+        priorBidsSum,
+        isLastPlayer,
+        gameState.enableLastBidRestriction
+      );
+
+      try {
+        room.gameState = placeBid(gameState, activePlayer.id, bid);
+        
+        if (room.gameState.phase === "playing") {
+          broadcastToRoom(io, room.roomCode, "all-bids-received", (pId) => serializeGameStateForPlayer(room.gameState, pId));
+        } else {
+          broadcastToRoom(io, room.roomCode, "bid-placed", (pId) => serializeGameStateForPlayer(room.gameState, pId));
+        }
+
+        // Recursively check next player turn
+        setTimeout(() => checkAndProcessOfflineTurns(io, room), 500);
+      } catch (err) {
+        console.error(`[Socket Error] Auto-bid failed for ${activePlayer.name}: ${err.message}`);
+      }
+
+    } else if (gameState.phase === "playing") {
+      const hand = gameState.hands[activePlayer.id] || [];
+      const leadCard = gameState.playedCards[0]?.card;
+      const leadSuit = leadCard ? leadCard.suit : null;
+      const bid = gameState.bids[activePlayer.id] || 0;
+      const tricks = gameState.tricksWon[activePlayer.id] || 0;
+      
+      const card = getBotCardToPlay(
+        hand,
+        leadSuit,
+        gameState.trump,
+        bid,
+        tricks
+      );
+
+      try {
+        room.gameState = playCard(gameState, activePlayer.id, card);
+        broadcastToRoom(io, room.roomCode, "card-played", (pId) => serializeGameStateForPlayer(room.gameState, pId));
+
+        if (room.gameState.phase === "resolvingTrick") {
+          // Pause 2 seconds so all players can see the completed trick
+          setTimeout(() => {
+            try {
+              const currentRoom = getRoom(room.roomCode);
+              if (!currentRoom || !currentRoom.gameState) return;
+              
+              const { winnerId, roundEnded } = resolveTrick(currentRoom.gameState);
+              
+              if (roundEnded) {
+                if (currentRoom.gameState.phase === "gameEnd") {
+                  currentRoom.status = "finished";
+                  io.to(currentRoom.roomCode).emit("game-finished", currentRoom.gameState);
+                } else {
+                  broadcastToRoom(io, currentRoom.roomCode, "round-finished", (pId) => serializeGameStateForPlayer(currentRoom.gameState, pId));
+                  broadcastToRoom(io, currentRoom.roomCode, "scoreboard", (pId) => serializeGameStateForPlayer(currentRoom.gameState, pId));
+                }
+              } else {
+                broadcastToRoom(io, currentRoom.roomCode, "trick-finished", (pId) => ({
+                  gameState: serializeGameStateForPlayer(currentRoom.gameState, pId),
+                  winnerId
+                }));
+                // Check next turn after trick resolution
+                setTimeout(() => checkAndProcessOfflineTurns(io, currentRoom), 500);
+              }
+            } catch (err) {
+              console.error(`[Socket Error] Error resolving trick in auto-play: ${err.message}`);
+            }
+          }, 2000);
+        } else {
+          // Recursively check next player turn
+          setTimeout(() => checkAndProcessOfflineTurns(io, room), 500);
+        }
+      } catch (err) {
+        console.error(`[Socket Error] Auto-play card failed for ${activePlayer.name}: ${err.message}`);
+      }
+    }
+  }
 }
 
 export default function registerSocketHandlers(io) {
   io.on("connection", (socket) => {
-    console.log(`[Socket] Client connected: ${socket.id}`);
+    if (process.env.DEBUG === "true") {
+      console.log(`[Socket] Client connected: ${socket.id}`);
+    }
 
     // Helper to send error response safely
     const sendError = (event, message) => {
@@ -52,8 +259,7 @@ export default function registerSocketHandlers(io) {
         }
         const room = createRoom(socket.id, name.trim());
         socket.join(room.roomCode);
-        socket.emit("room-created", serializeRoom(room));
-        console.log(`[Socket] Room created: ${room.roomCode} by ${name}`);
+        socket.emit("room-created", serializeRoomForPlayer(room, socket.id));
       } catch (err) {
         sendError("create-room", err.message);
       }
@@ -85,25 +291,23 @@ export default function registerSocketHandlers(io) {
           // Reconnection flow (updates socket ID and maps game state)
           const room = handlePlayerReconnect(code, name.trim(), socket.id);
           socket.join(code);
-          console.log(`[Socket] Sockets in room ${code} after rejoin:`, io.sockets.adapter.rooms.get(code));
           
-          io.to(code).emit("player-reconnected", {
-            room: serializeRoom(room),
+          broadcastToRoom(io, code, "player-reconnected", (pId) => ({
+            room: serializeRoomForPlayer(room, pId),
             playerId: socket.id,
             playerName: name.trim()
-          });
-          io.to(code).emit("room-updated", serializeRoom(room));
+          }));
+          broadcastToRoom(io, code, "room-updated", (pId) => serializeRoomForPlayer(room, pId));
           
-          console.log(`[Socket] Player ${name} reconnected in Room ${code}`);
+          // Trigger turn check in case they disconnected during their turn
+          checkAndProcessOfflineTurns(io, room);
         } else {
           // Normal join flow
           const room = joinRoom(code, socket.id, name.trim());
           socket.join(code);
-          console.log(`[Socket] Sockets in room ${code} after join:`, io.sockets.adapter.rooms.get(code));
           
-          io.to(code).emit("player-joined", serializeRoom(room));
-          io.to(code).emit("room-updated", serializeRoom(room));
-          console.log(`[Socket] Player ${name} joined Room ${code}`);
+          broadcastToRoom(io, code, "player-joined", (pId) => serializeRoomForPlayer(room, pId));
+          broadcastToRoom(io, code, "room-updated", (pId) => serializeRoomForPlayer(room, pId));
         }
       } catch (err) {
         sendError("join-room", err.message);
@@ -114,8 +318,8 @@ export default function registerSocketHandlers(io) {
     socket.on("change-settings", ({ roomCode, settings }) => {
       try {
         const room = changeRoomSettings(roomCode, socket.id, settings);
-        io.to(roomCode.toUpperCase()).emit("settings-updated", serializeRoom(room));
-        io.to(roomCode.toUpperCase()).emit("room-updated", serializeRoom(room));
+        broadcastToRoom(io, roomCode, "settings-updated", (pId) => serializeRoomForPlayer(room, pId));
+        broadcastToRoom(io, roomCode, "room-updated", (pId) => serializeRoomForPlayer(room, pId));
       } catch (err) {
         sendError("change-settings", err.message);
       }
@@ -127,38 +331,11 @@ export default function registerSocketHandlers(io) {
         const room = startGame(roomCode, socket.id);
         const codeUpper = room.roomCode.toUpperCase();
         
-        // Print io.sockets.adapter.rooms.get(roomCode) as requested by step 6
-        const roomSockets = io.sockets.adapter.rooms.get(codeUpper);
-        console.log("io.sockets.adapter.rooms.get(roomCode)");
-        console.log(roomSockets);
-
-        // Expose debugging logs as requested by STEP 1 and STEP 3
-        console.log("START GAME");
-        console.log("ROOM STATE:", serializeRoom(room));
-        console.log("PLAYERS LIST:", room.players);
-        console.log("GAME STATE:", room.gameState);
-
-        // Verify every socket is inside the room
-        const playerSocketIds = room.players.map(p => p.id);
-        const allInRoom = playerSocketIds.every(sid => roomSockets && roomSockets.has(sid));
-        console.log(`[Verification] Every player socket inside room ${codeUpper}:`, allInRoom);
-        if (!allInRoom) {
-          console.warn("[Verification Warning] Some player socket is NOT in the room adapter!");
-          playerSocketIds.forEach(sid => {
-            console.log(`Socket ${sid} in room:`, roomSockets ? roomSockets.has(sid) : false);
-          });
-        }
-
-        console.log("[Verification] Emitting game-started to room:", codeUpper);
-
-        // Notify players that the game has started by sending gameState
-        io.to(room.roomCode).emit("game-started", room.gameState);
+        broadcastToRoom(io, codeUpper, "game-started", (pId) => serializeGameStateForPlayer(room.gameState, pId));
+        broadcastToRoom(io, codeUpper, "cards-dealt", (pId) => serializeGameStateForPlayer(room.gameState, pId));
+        broadcastToRoom(io, codeUpper, "room-updated", (pId) => serializeRoomForPlayer(room, pId));
         
-        // Also emit cards-dealt right after to indicate hand deals
-        io.to(room.roomCode).emit("cards-dealt", room.gameState);
-        io.to(room.roomCode).emit("room-updated", serializeRoom(room));
-        
-        console.log(`[Socket] Game started in Room ${room.roomCode}`);
+        checkAndProcessOfflineTurns(io, room);
       } catch (err) {
         sendError("start-game", err.message);
       }
@@ -173,10 +350,12 @@ export default function registerSocketHandlers(io) {
         room.gameState = placeBid(room.gameState, socket.id, bid);
 
         if (room.gameState.phase === "playing") {
-          io.to(room.roomCode).emit("all-bids-received", room.gameState);
+          broadcastToRoom(io, room.roomCode, "all-bids-received", (pId) => serializeGameStateForPlayer(room.gameState, pId));
         } else {
-          io.to(room.roomCode).emit("bid-placed", room.gameState);
+          broadcastToRoom(io, room.roomCode, "bid-placed", (pId) => serializeGameStateForPlayer(room.gameState, pId));
         }
+
+        checkAndProcessOfflineTurns(io, room);
       } catch (err) {
         sendError("place-bid", err.message);
       }
@@ -190,15 +369,12 @@ export default function registerSocketHandlers(io) {
         
         room.gameState = playCard(room.gameState, socket.id, card);
         
-        // Emits card-played immediately
-        io.to(room.roomCode).emit("card-played", room.gameState);
+        broadcastToRoom(io, room.roomCode, "card-played", (pId) => serializeGameStateForPlayer(room.gameState, pId));
 
         // Check if trick needs resolution
         if (room.gameState.phase === "resolvingTrick") {
-          // Pause 2 seconds so all players can see the completed trick
           setTimeout(() => {
             try {
-              // Retrieve fresh room reference in case of disconnects during timeout
               const currentRoom = getRoom(roomCode);
               if (!currentRoom || !currentRoom.gameState) return;
               
@@ -209,21 +385,22 @@ export default function registerSocketHandlers(io) {
                   currentRoom.status = "finished";
                   io.to(currentRoom.roomCode).emit("game-finished", currentRoom.gameState);
                 } else {
-                  // Round is over. Send scoreboard state
-                  io.to(currentRoom.roomCode).emit("round-finished", currentRoom.gameState);
-                  io.to(currentRoom.roomCode).emit("scoreboard", currentRoom.gameState);
+                  broadcastToRoom(io, currentRoom.roomCode, "round-finished", (pId) => serializeGameStateForPlayer(currentRoom.gameState, pId));
+                  broadcastToRoom(io, currentRoom.roomCode, "scoreboard", (pId) => serializeGameStateForPlayer(currentRoom.gameState, pId));
                 }
               } else {
-                // Trick resolved, move to next play
-                io.to(currentRoom.roomCode).emit("trick-finished", {
-                  gameState: currentRoom.gameState,
+                broadcastToRoom(io, currentRoom.roomCode, "trick-finished", (pId) => ({
+                  gameState: serializeGameStateForPlayer(currentRoom.gameState, pId),
                   winnerId
-                });
+                }));
+                checkAndProcessOfflineTurns(io, currentRoom);
               }
             } catch (err) {
               console.error(`[Socket Error] Error resolving trick: ${err.message}`);
             }
           }, 2000);
+        } else {
+          checkAndProcessOfflineTurns(io, room);
         }
       } catch (err) {
         sendError("play-card", err.message);
@@ -236,16 +413,17 @@ export default function registerSocketHandlers(io) {
         const room = getRoom(roomCode);
         if (!room) return sendError("continue-round", "Room not found.");
         
-        // Calculate new gameState
         room.gameState = continueRound(room.gameState, socket.id);
 
         if (room.gameState.phase === "gameEnd") {
           room.status = "finished";
           io.to(room.roomCode).emit("game-finished", room.gameState);
         } else {
-          io.to(room.roomCode).emit("next-round-started", room.gameState);
-          io.to(room.roomCode).emit("cards-dealt", room.gameState);
+          broadcastToRoom(io, room.roomCode, "next-round-started", (pId) => serializeGameStateForPlayer(room.gameState, pId));
+          broadcastToRoom(io, room.roomCode, "cards-dealt", (pId) => serializeGameStateForPlayer(room.gameState, pId));
         }
+
+        checkAndProcessOfflineTurns(io, room);
       } catch (err) {
         sendError("continue-round", err.message);
       }
@@ -260,7 +438,6 @@ export default function registerSocketHandlers(io) {
 
         let playerToRemoveId = socket.id;
 
-        // If targetPlayerId is specified, check if sender is host
         if (targetPlayerId && targetPlayerId !== socket.id) {
           if (room.hostId !== socket.id) {
             return sendError("leave-room", "Only the host can kick players.");
@@ -270,7 +447,6 @@ export default function registerSocketHandlers(io) {
 
         const updatedRoom = removePlayerFromRoom(code, playerToRemoveId);
         
-        // Find the socket of the player being removed and disconnect them from the channel
         const targetSocket = io.sockets.sockets.get(playerToRemoveId);
         if (targetSocket) {
           targetSocket.leave(code);
@@ -280,11 +456,11 @@ export default function registerSocketHandlers(io) {
         }
         
         if (updatedRoom) {
-          io.to(code).emit("player-left", {
-            room: serializeRoom(updatedRoom),
+          broadcastToRoom(io, code, "player-left", (pId) => ({
+            room: serializeRoomForPlayer(updatedRoom, pId),
             playerId: playerToRemoveId
-          });
-          io.to(code).emit("room-updated", serializeRoom(updatedRoom));
+          }));
+          broadcastToRoom(io, code, "room-updated", (pId) => serializeRoomForPlayer(updatedRoom, pId));
         } else {
           io.to(code).emit("room-closed", { message: "Room closed. Host left or all players disconnected." });
         }
@@ -306,9 +482,7 @@ export default function registerSocketHandlers(io) {
         
         const cleanCode = code.trim().toUpperCase();
         const room = getRoom(cleanCode);
-        console.log(`[Socket] get-room-state for Room ${cleanCode}:`, room);
-        console.log(`[Socket] Sockets in room ${cleanCode}:`, io.sockets.adapter.rooms.get(cleanCode));
-        socket.emit("room-state", serializeRoom(room));
+        socket.emit("room-state", serializeRoomForPlayer(room, socket.id));
       } catch (err) {
         sendError("get-room-state", err.message);
       }
@@ -331,13 +505,14 @@ export default function registerSocketHandlers(io) {
           if (player.isHost) {
             room.hostName = player.name;
           }
-          io.to(code).emit("player-name-changed", {
-            room: serializeRoom(room),
+          
+          broadcastToRoom(io, code, "player-name-changed", (pId) => ({
+            room: serializeRoomForPlayer(room, pId),
             oldName,
             newName: player.name,
             playerId: socket.id
-          });
-          io.to(code).emit("room-updated", serializeRoom(room));
+          }));
+          broadcastToRoom(io, code, "room-updated", (pId) => serializeRoomForPlayer(room, pId));
         }
       } catch (err) {
         sendError("change-name", err.message);
@@ -362,19 +537,24 @@ export default function registerSocketHandlers(io) {
 
     // DISCONNECT
     socket.on("disconnect", () => {
-      console.log(`[Socket] Client disconnected: ${socket.id}`);
+      if (process.env.DEBUG === "true") {
+        console.log(`[Socket] Client disconnected: ${socket.id}`);
+      }
       const affectedRooms = handlePlayerDisconnect(socket.id);
       
       for (const room of affectedRooms) {
         const player = room.players.find(p => p.id === socket.id);
         const name = player ? player.name : "Unknown Player";
         
-        io.to(room.roomCode).emit("player-disconnected", {
+        broadcastToRoom(io, room.roomCode, "player-disconnected", (pId) => ({
           playerId: socket.id,
           playerName: name,
-          room: serializeRoom(room)
-        });
-        io.to(room.roomCode).emit("room-updated", serializeRoom(room));
+          room: serializeRoomForPlayer(room, pId)
+        }));
+        broadcastToRoom(io, room.roomCode, "room-updated", (pId) => serializeRoomForPlayer(room, pId));
+
+        // Attempt auto-play if it's the disconnected player's turn
+        checkAndProcessOfflineTurns(io, room);
       }
     });
   });

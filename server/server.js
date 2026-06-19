@@ -43,10 +43,7 @@ registerSocketHandlers(io);
 const mongoUri = process.env.MONGODB_URI;
 if (mongoUri) {
   console.log("Loaded MONGODB_URI:", process.env.MONGODB_URI);
-  mongoose.connect(mongoUri, {
-    useNewUrlParser: true,
-    useUnifiedTopology: true
-  })
+  mongoose.connect(mongoUri)
     .then(() => console.log("[Server] Connected to MongoDB"))
     .catch(err => console.error("[Server] MongoDB connection error:", err));
 } else {
@@ -55,5 +52,5 @@ if (mongoUri) {
 
 // --- Start Server ---
 httpServer.listen(PORT, "0.0.0.0", () => {
-  console.log(`[Server] Kachuful Server running on port ${PORT} (exposing to local network on http://10.41.34.76:${PORT})`);
+  console.log(`[Server] Kachuful Server running on port ${PORT}`);
 });

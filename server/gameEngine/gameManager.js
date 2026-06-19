@@ -272,3 +272,88 @@ export function continueRound(state, playerId) {
 
   return state;
 }
+
+export function getBotBid(hand, cardsPerPlayer, trump, priorBidsSum, isLastPlayer, enableLastBidRestriction) {
+  let strength = 0;
+  
+  for (const card of hand) {
+    // Value points
+    if (card.rank === "A") strength += 1.0;
+    else if (card.rank === "K") strength += 0.85;
+    else if (card.rank === "Q") strength += 0.6;
+    else if (card.rank === "J") strength += 0.4;
+    else if (card.value >= 10) strength += 0.2;
+    
+    // Trump bonus
+    if (card.suit === trump) {
+      if (card.rank === "A" || card.rank === "K") {
+        strength += 0.5; // Extra security for high trump
+      } else {
+        strength += 0.7; // Standard trump card strength
+      }
+    }
+  }
+
+  let bid = Math.round(strength);
+  // Clamp to cards count
+  if (bid > cardsPerPlayer) bid = cardsPerPlayer;
+  if (bid < 0) bid = 0;
+
+  // Enforce Last Player Restriction
+  if (enableLastBidRestriction && isLastPlayer) {
+    const forbidden = cardsPerPlayer - priorBidsSum;
+    if (forbidden !== null && bid === forbidden) {
+      // Adjust bid
+      if (bid === 0) {
+        bid = 1;
+      } else {
+        bid = bid - 1; // Try one less
+      }
+      // Re-clamp
+      if (bid > cardsPerPlayer) bid = cardsPerPlayer;
+      if (bid < 0) bid = 0;
+      
+      // If it still equals forbidden, try incrementing instead
+      if (bid === forbidden) {
+        bid = Math.min(cardsPerPlayer, bid + 2);
+      }
+    }
+  }
+
+  return bid;
+}
+
+export function getBotCardToPlay(hand, leadSuit, activeTrump, bid, tricksWon) {
+  // Get playable cards
+  const playable = hand.filter(c => {
+    try {
+      const result = validateCardPlay({ card: c, playerHand: hand, leadSuit });
+      return result.valid;
+    } catch {
+      return false;
+    }
+  });
+
+  if (playable.length === 0) return hand[0]; // Fallback
+
+  const needsTricks = tricksWon < bid;
+
+  // Sort playable cards by value (trump counts higher)
+  const rateCard = (card) => {
+    let base = card.value;
+    if (card.suit === activeTrump) {
+      base += 20; // Trump suit is rated much higher
+    }
+    return base;
+  };
+
+  playable.sort((a, b) => rateCard(a) - rateCard(b)); // Ascending
+
+  if (needsTricks) {
+    // Play the highest card to try to win the trick
+    return playable[playable.length - 1];
+  } else {
+    // Play the lowest card to try to lose the trick
+    return playable[0];
+  }
+}
