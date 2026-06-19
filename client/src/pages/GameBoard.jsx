@@ -205,6 +205,11 @@ export default function GameBoard({ onNavigate }) {
     }
   }, [errorMessage, clearError]);
 
+  // Reset selected bid when phase or turn or round changes
+  useEffect(() => {
+    setSelectedBid(null);
+  }, [phase, currentTurn, round]);
+
   // 2. Timeout for state loading fallback
   useEffect(() => {
     if (!gameState && !isOffline) {
@@ -1113,7 +1118,7 @@ export default function GameBoard({ onNavigate }) {
 
       {/* BIDPOPUP MODAL */}
       <AnimatePresence>
-        {phase === "bidding" && isMyTurn && (
+        {phase === "bidding" && room && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -1126,76 +1131,148 @@ export default function GameBoard({ onNavigate }) {
               exit={{ scale: 0.9, y: 20 }}
               className="w-full max-w-sm glass-panel p-6 rounded-3xl border border-slate-800 shadow-2xl relative"
             >
-              <h2 className="text-xl font-black text-amber-500 tracking-wider text-center uppercase mb-0.5">
-                ROUND {round} FORECAST
-              </h2>
-              <p className="text-slate-400 text-[10px] text-center uppercase tracking-wider mb-5">
-                How many hands will you win?
-              </p>
-
-              {/* Trump Showcase Card with large glow display */}
-              <div className="mb-5 flex flex-col items-center gap-1.5">
-                <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Active Trump Card</span>
-                {renderTrumpCard(trump, true)}
-              </div>
-
-              {/* Preview dealt cards */}
-              <div className="mb-5">
-                <span className="block text-[9px] font-black text-slate-500 uppercase tracking-widest text-center mb-1.5">Your Hand Preview</span>
-                <div className="flex gap-1.5 justify-center overflow-x-auto py-2 px-1.5 no-scrollbar bg-slate-950/40 rounded-2xl border border-slate-900/60 max-h-20">
-                  {myHand?.map((card, cIdx) => {
-                    const isRed = card.suit === "HEART" || card.suit === "DIAMOND";
-                    return (
-                      <div
-                        key={cIdx}
-                        className="w-10 h-14 bg-white border border-slate-250 rounded-[6px] flex flex-col justify-between p-1 shadow-md shrink-0 select-none relative"
-                        style={{ color: isRed ? "#dc2626" : "#020617" }}
-                      >
-                        <div className="absolute inset-0 bg-gradient-to-tr from-transparent via-white/15 to-transparent opacity-75 pointer-events-none rounded-[6px]"
-                             style={{ background: "linear-gradient(135deg, rgba(255,255,255,0.2) 0%, rgba(255,255,255,0) 100%)" }} />
-
-                        <div className="flex flex-col items-center leading-none self-start scale-80 origin-top-left">
-                          <span className="text-[10px] font-black">{card.rank}</span>
-                          <span className="mt-0.5">{renderSuitIcon(card.suit, "w-2.5 h-2.5")}</span>
-                        </div>
-                        <div className="text-center text-sm leading-none flex items-center justify-center">
-                          <div className="w-4.5 h-4.5">
-                            {renderSuitIcon(card.suit, "w-full h-full")}
-                          </div>
-                        </div>
-                        <div className="flex flex-col items-center leading-none self-end transform rotate-180 scale-80 origin-bottom-right">
-                          <span className="text-[10px] font-black">{card.rank}</span>
-                          <span className="mt-0.5">{renderSuitIcon(card.suit, "w-2.5 h-2.5")}</span>
-                        </div>
-                      </div>
-                    );
-                  })}
+              <div className="text-center mb-4">
+                <span className="text-[10px] text-slate-400 font-extrabold tracking-widest uppercase">
+                  ROUND {round}
+                </span>
+                <div className="flex items-center justify-center gap-1.5 mt-1">
+                  <span className="text-[10px] text-slate-500 font-extrabold uppercase tracking-widest">
+                    TRUMP:
+                  </span>
+                  {renderTrumpTextRepresentation(trump)}
                 </div>
+                <div className="h-[1px] bg-slate-800/80 my-3" />
               </div>
 
-              {forbiddenBid !== null && (
-                <div className="mb-4 p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl text-amber-400 text-[10px] font-bold text-center uppercase tracking-wider leading-relaxed">
-                  Last player restriction! <br />
-                  You CANNOT bid: <span className="text-sm font-extrabold text-amber-300">{forbiddenBid}</span>
+              {isMyTurn ? (
+                <>
+                  <h3 className="text-sm font-black text-amber-500 tracking-wider text-center uppercase mb-3">
+                    Your Guess
+                  </h3>
+
+                  {/* Preview dealt cards */}
+                  <div className="mb-4">
+                    <div className="flex gap-1.5 justify-center overflow-x-auto py-2 px-1.5 no-scrollbar bg-slate-950/40 rounded-2xl border border-slate-900/60 max-h-20">
+                      {myHand?.map((card, cIdx) => {
+                        const isRed = card.suit === "HEART" || card.suit === "DIAMOND";
+                        return (
+                          <div
+                            key={cIdx}
+                            className="w-10 h-14 bg-white border border-slate-250 rounded-[6px] flex flex-col justify-between p-1 shadow-md shrink-0 select-none relative"
+                            style={{ color: isRed ? "#dc2626" : "#020617" }}
+                          >
+                            <div className="absolute inset-0 bg-gradient-to-tr from-transparent via-white/15 to-transparent opacity-75 pointer-events-none rounded-[6px]"
+                                 style={{ background: "linear-gradient(135deg, rgba(255,255,255,0.2) 0%, rgba(255,255,255,0) 100%)" }} />
+
+                            <div className="flex flex-col items-center leading-none self-start scale-80 origin-top-left">
+                              <span className="text-[10px] font-black">{card.rank}</span>
+                              <span className="mt-0.5">{renderSuitIcon(card.suit, "w-2.5 h-2.5")}</span>
+                            </div>
+                            <div className="text-center text-sm leading-none flex items-center justify-center">
+                              <div className="w-4.5 h-4.5">
+                                {renderSuitIcon(card.suit, "w-full h-full")}
+                              </div>
+                            </div>
+                            <div className="flex flex-col items-center leading-none self-end transform rotate-180 scale-80 origin-bottom-right">
+                              <span className="text-[10px] font-black">{card.rank}</span>
+                              <span className="mt-0.5">{renderSuitIcon(card.suit, "w-2.5 h-2.5")}</span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {forbiddenBid !== null && (
+                    <div className="mb-4 p-2 bg-amber-500/10 border border-amber-500/20 rounded-xl text-amber-400 text-[9px] font-bold text-center uppercase tracking-wider leading-relaxed">
+                      Last player restriction! <br />
+                      You CANNOT bid: <span className="text-xs font-extrabold text-amber-300">{forbiddenBid}</span>
+                    </div>
+                  )}
+
+                  {/* Grid of bidding options */}
+                  <div className="grid grid-cols-4 gap-2 mb-4">
+                    {Array.from({ length: cardsPerPlayer + 1 }).map((_, val) => {
+                      const isForbidden = val === forbiddenBid;
+                      const isSelected = selectedBid === val;
+                      return (
+                        <button
+                          key={val}
+                          onClick={() => setSelectedBid(val)}
+                          disabled={isForbidden}
+                          className={`aspect-square font-black rounded-xl transition-all flex justify-center items-center text-lg outline-none cursor-pointer ${
+                            isForbidden
+                              ? "bg-slate-950/40 border border-slate-900 text-slate-750 opacity-20 cursor-not-allowed"
+                              : isSelected
+                              ? "bg-amber-500 text-slate-950 border-2 border-amber-400 shadow-[0_0_15px_rgba(245,158,11,0.65)] scale-110"
+                              : "bg-slate-900 border border-slate-800 hover:border-amber-500/30 text-slate-100 hover:bg-slate-800/80"
+                          }`}
+                        >
+                          {val}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  <button
+                    onClick={() => selectedBid !== null && handleBidSubmit(selectedBid)}
+                    disabled={selectedBid === null}
+                    className={`w-full py-3 rounded-xl font-bold transition-all text-xs tracking-wider uppercase ${
+                      selectedBid !== null
+                        ? "bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-450 hover:to-amber-550 text-slate-950 shadow-lg cursor-pointer"
+                        : "bg-slate-900 text-slate-500 border border-slate-800 cursor-not-allowed"
+                    }`}
+                  >
+                    Confirm Guess
+                  </button>
+
+                  <p className="text-slate-500 text-[9px] text-center mt-3 uppercase tracking-wider font-semibold">
+                    Choose how many tricks you will win.
+                  </p>
+                </>
+              ) : (
+                <div className="flex flex-col items-center gap-4 text-center my-2">
+                  <div className="w-12 h-12 bg-amber-500/10 border border-amber-500/30 text-amber-500 rounded-full flex items-center justify-center shadow-[0_0_15px_rgba(245,158,11,0.15)] animate-pulse">
+                    <span className="text-xl">⏳</span>
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <span className="text-sm font-black text-slate-200 tracking-wide uppercase font-sans">
+                      Waiting for {activePlayer?.name || "Player"}...
+                    </span>
+                    <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">
+                      to place their guess
+                    </span>
+                  </div>
+
+                  {/* List of other players and their guess status */}
+                  <div className="w-full mt-2 bg-slate-950/40 rounded-2xl border border-slate-900/60 p-4 flex flex-col gap-2">
+                    <span className="text-[9px] font-black text-slate-550 uppercase tracking-widest mb-1 text-left">
+                      Guess Status
+                    </span>
+                    {gameStatePlayers.map(p => {
+                      const playerBid = bids?.[p.id];
+                      const hasBid = playerBid !== undefined;
+                      const isCurrent = p.id === activePlayer?.id;
+                      return (
+                        <div key={p.id} className="flex justify-between items-center text-xs">
+                          <span className={`font-bold ${p.id === myPlayerId ? "text-amber-500" : "text-slate-350"}`}>
+                            {p.name} {p.id === myPlayerId && "(You)"}
+                          </span>
+                          <span className="font-extrabold uppercase text-[10px] tracking-wide">
+                            {hasBid ? (
+                              <span className="text-emerald-500">✓ Has Guessed</span>
+                            ) : isCurrent ? (
+                              <span className="text-amber-500 animate-pulse">⏳ Guessing...</span>
+                            ) : (
+                              <span className="text-slate-650">⏳ Waiting</span>
+                            )}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               )}
-
-              {/* Grid of bidding options */}
-              <div className="grid grid-cols-4 gap-2 mb-2">
-                {Array.from({ length: cardsPerPlayer + 1 }).map((_, val) => {
-                  const isForbidden = val === forbiddenBid;
-                  return (
-                    <button
-                      key={val}
-                      onClick={() => handleBidSubmit(val)}
-                      disabled={isForbidden}
-                      className="aspect-square bg-slate-900 border border-slate-800 hover:border-amber-500/30 text-slate-100 disabled:opacity-15 disabled:cursor-not-allowed hover:bg-slate-800/80 font-black rounded-xl transition-all flex justify-center items-center text-lg outline-none"
-                    >
-                      {val}
-                    </button>
-                  );
-                })}
-              </div>
             </motion.div>
           </motion.div>
         )}
