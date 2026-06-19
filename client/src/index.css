@@ -81,3 +81,16 @@
 .animate-shine {
   animation: shine-sweep 2.2s infinite ease-in-out;
 }
+
+/* Playable Card Pulse glow */
+@keyframes playable-card-pulse-glow {
+  0%, 100% {
+    box-shadow: 0 0 12px rgba(16, 185, 129, 0.5), 0 0 0 2px rgba(16, 185, 129, 0.2);
+  }
+  50% {
+    box-shadow: 0 0 22px rgba(16, 185, 129, 0.85), 0 0 0 4px rgba(16, 185, 129, 0.4);
+  }
+}
+.playable-card-pulse {
+  animation: playable-card-pulse-glow 1.8s infinite ease-in-out;
+}

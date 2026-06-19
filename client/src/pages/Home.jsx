@@ -126,12 +126,12 @@ export default function Home({ onNavigate }) {
           {/* Name input */}
           <div className="mb-6">
             <label className="block text-slate-400 text-xs font-bold tracking-wider mb-2" htmlFor="playerName">
-              ENTER YOUR NAME
+              Enter Your Name
             </label>
             <input
               id="playerName"
               type="text"
-              placeholder="e.g. Vasudev"
+              placeholder="Your Name"
               maxLength={15}
               value={nameInput}
               onChange={(e) => setNameInput(e.target.value)}

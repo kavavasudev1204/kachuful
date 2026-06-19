@@ -75,8 +75,36 @@ export default function GameBoard({ onNavigate }) {
   const [cardPlayError, setCardPlayError] = useState("");
   const [muted, setMuted] = useState(sounds.isMuted());
   const [namePromptInput, setNamePromptInput] = useState("");
+  const [isPortrait, setIsPortrait] = useState(false);
+  const [isDealAnimating, setIsDealAnimating] = useState(false);
   
   const chatEndRef = useRef(null);
+
+  // Monitor orientation shifts
+  useEffect(() => {
+    const checkOrientation = () => {
+      setIsPortrait(window.innerHeight > window.innerWidth);
+    };
+    checkOrientation();
+    window.addEventListener("resize", checkOrientation);
+    window.addEventListener("orientationchange", checkOrientation);
+    return () => {
+      window.removeEventListener("resize", checkOrientation);
+      window.removeEventListener("orientationchange", checkOrientation);
+    };
+  }, []);
+
+  // Set deal animation timer when round changes or hand fills
+  useEffect(() => {
+    const handLength = gameState?.hands?.[myPlayerId]?.length || 0;
+    if (handLength > 0) {
+      setIsDealAnimating(true);
+      const timer = setTimeout(() => {
+        setIsDealAnimating(false);
+      }, 1500);
+      return () => clearTimeout(timer);
+    }
+  }, [round, gameState?.hands?.[myPlayerId]?.length]);
 
   // Auto-scroll chat drawer
   useEffect(() => {
@@ -107,6 +135,28 @@ export default function GameBoard({ onNavigate }) {
       }
     }
   }, [paramRoomCode, roomCode, joinRoomOnline, isOffline]);
+
+  // Portrait Lock Overlay
+  if (isPortrait) {
+    return (
+      <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[9999] flex flex-col justify-center items-center text-center p-6 text-slate-100 select-none">
+        <motion.div
+          animate={{ rotate: [0, 90, 90, 0, 0] }}
+          transition={{ repeat: Infinity, duration: 2.5, ease: "easeInOut", times: [0, 0.4, 0.6, 1, 1] }}
+          className="w-20 h-20 bg-slate-900 border border-slate-800 text-amber-500 rounded-3xl flex items-center justify-center mb-6 shadow-xl"
+        >
+          <RefreshCw className="w-10 h-10" />
+        </motion.div>
+        <h2 className="text-xl font-extrabold text-slate-200 tracking-wider mb-2 uppercase">Landscape Required</h2>
+        <p className="text-slate-400 text-sm max-w-xs mb-1 font-medium">
+          Please rotate your device to Landscape Mode
+        </p>
+        <span className="text-amber-500 text-lg font-black mt-2 tracking-widest animate-pulse">
+          🡺 Landscape Required
+        </span>
+      </div>
+    );
+  }
 
   const showNamePrompt = paramRoomCode && paramRoomCode !== "OFFLINE" && !isOffline && !localStorage.getItem("playerName") && !roomCode;
 
@@ -270,12 +320,35 @@ export default function GameBoard({ onNavigate }) {
     orderedPlayers.push(gameState.players[offsetIndex >= 0 ? offsetIndex : 0]);
   }
 
+  const getSeatingAngles = (total) => {
+    switch (total) {
+      case 2:
+        return [90, 270];
+      case 3:
+        return [90, 210, 330];
+      case 4:
+        return [90, 180, 270, 360];
+      case 5:
+        return [90, 162, 234, 306, 18];
+      case 6:
+        return [90, 150, 210, 270, 330, 30];
+      default:
+        const angles = [];
+        for (let i = 0; i < total; i++) {
+          angles.push(90 + (i * 360) / total);
+        }
+        return angles;
+    }
+  };
+
   const getPolarCoords = (index, total) => {
-    const angle = 90 + (index * 360) / total;
+    const angles = getSeatingAngles(total);
+    const angle = angles[index % total];
     const rad = (angle * Math.PI) / 180;
+    // 68% radius to place player avatars outside the 50% felt table border
     return {
-      left: `calc(50% + ${60 * Math.cos(rad)}%)`,
-      top: `calc(50% + ${60 * Math.sin(rad)}%)`,
+      left: `calc(50% + ${68 * Math.cos(rad)}%)`,
+      top: `calc(50% + ${68 * Math.sin(rad)}%)`,
       angle
     };
   };
@@ -284,11 +357,12 @@ export default function GameBoard({ onNavigate }) {
   const getPlayedCardOffset = (playerId) => {
     const idx = orderedPlayers.findIndex(p => p.id === playerId);
     if (idx === -1) return { x: 0, y: 0, rotate: 0 };
-    const angle = 90 + (idx * 360) / N;
+    const angles = getSeatingAngles(N);
+    const angle = angles[idx % N];
     const rad = (angle * Math.PI) / 180;
     return {
-      x: 60 * Math.cos(rad),
-      y: 60 * Math.sin(rad),
+      x: 55 * Math.cos(rad),
+      y: 55 * Math.sin(rad),
       rotate: ((idx * 6) % 14) - 7
     };
   };
@@ -297,7 +371,8 @@ export default function GameBoard({ onNavigate }) {
   const getPlayedCardInitialOffset = (playerId) => {
     const idx = orderedPlayers.findIndex(p => p.id === playerId);
     if (idx === -1) return { x: 0, y: 0 };
-    const angle = 90 + (idx * 360) / N;
+    const angles = getSeatingAngles(N);
+    const angle = angles[idx % N];
     const rad = (angle * Math.PI) / 180;
     return {
       x: 180 * Math.cos(rad),
@@ -454,7 +529,7 @@ export default function GameBoard({ onNavigate }) {
   const deckSize = gameState.deck?.length ?? (52 - (N * round));
 
   return (
-    <div className="min-h-screen flex flex-col justify-between bg-slate-950 text-slate-100 relative overflow-hidden select-none">
+    <div className="h-screen max-h-screen flex flex-col justify-between bg-slate-950 text-slate-100 relative overflow-hidden select-none">
       {/* Background radial overlays */}
       <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-blue-900/10 rounded-full blur-[100px] pointer-events-none" />
       <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-indigo-950/15 rounded-full blur-[100px] pointer-events-none" />
@@ -527,18 +602,6 @@ export default function GameBoard({ onNavigate }) {
         </div>
 
         {/* Circular Table Felt with Weave Felt Texture */}
-        <div className="w-[72vw] h-[72vw] sm:w-[380px] sm:h-[380px] rounded-full border-[10px] border-amber-800 shadow-[inset_0_0_60px_rgba(0,0,0,0.92),_0_15px_35px_rgba(0,0,0,0.65),_0_0_35px_rgba(59,130,246,0.3)] ring-4 ring-amber-500/25 relative flex justify-center items-center my-6 z-10 overflow-hidden"
-             style={{ background: "radial-gradient(circle, #0e3557 0%, #051629 100%)" }}
-        >
-          {/* Felt Weave Texture Overlay */}
-          <div className="absolute inset-0 opacity-[0.12] pointer-events-none"
-               style={{
-                 backgroundImage: "radial-gradient(circle at 50% 50%, rgba(255,255,255,0.18) 0%, transparent 80%), repeating-linear-gradient(0deg, rgba(0,0,0,0.1) 0px, rgba(0,0,0,0.1) 1px, transparent 1px, transparent 2px), repeating-linear-gradient(90deg, rgba(0,0,0,0.1) 0px, rgba(0,0,0,0.1) 1px, transparent 1px, transparent 2px)",
-               }} />
-
-          {/* Radial center light source glow */}
-          <div className="absolute w-[220px] h-[220px] rounded-full bg-blue-400/10 blur-[50px] pointer-events-none" />
-
            {/* TRICK WINNER POPUP MODAL */}
            <AnimatePresence>
              {showWinnerBanner && gameState.lastTrickWinner && (
@@ -584,169 +647,185 @@ export default function GameBoard({ onNavigate }) {
              )}
            </AnimatePresence>
 
-           {/* Deck Stack */}
-           <div className="absolute left-[7%] top-1/2 transform -translate-y-1/2 flex flex-col items-center gap-1.5 z-20 pointer-events-none select-none">
-             <div className="relative w-8 h-12 sm:w-10 sm:h-14">
-               <div className="absolute top-0 left-0 w-full h-full bg-blue-900 border border-blue-500 rounded-md shadow transform -rotate-6"
-                    style={{ background: "linear-gradient(135deg, #1e3a8a 0%, #0f172a 100%)" }} />
-               <div className="absolute top-0.5 left-0.5 w-full h-full bg-blue-900 border border-blue-500 rounded-md shadow transform rotate-3"
-                    style={{ background: "linear-gradient(135deg, #1e3a8a 0%, #0f172a 100%)" }} />
-               <div className="absolute top-1 left-1 w-full h-full bg-blue-950 border-2 border-blue-400 rounded-md shadow flex items-center justify-center"
-                    style={{ background: "linear-gradient(135deg, #1e3a8a 0%, #0f172a 100%)" }}>
-                 <span className="text-[10px] sm:text-xs text-blue-400 font-bold font-serif">🂠</span>
-               </div>
-             </div>
-             <span className="text-[8px] sm:text-[9px] font-black uppercase text-slate-400 tracking-wider bg-slate-950/80 px-2 py-0.5 rounded-full border border-slate-900">
-               {deckSize} Cards
-             </span>
-           </div>
-
-           {/* Trump Card Showcase */}
-           <div className="absolute right-[7%] top-1/2 transform -translate-y-1/2 flex flex-col items-center gap-1.5 z-20 pointer-events-none select-none">
-             <span className="text-[8px] sm:text-[9px] font-black uppercase text-amber-500 tracking-wider bg-slate-950/80 px-1.5 py-0.5 rounded-full border border-slate-900">
-               Trump
-             </span>
-             {renderTrumpCard(trump, false)}
-           </div>
-          
-           {/* Card pile with spring landing and shrink offset */}
-           <div className="w-[180px] h-[180px] rounded-full bg-slate-950/5 relative flex justify-center items-center pointer-events-none">
-             {playedCards.map((play) => {
-               const offset = getPlayedCardOffset(play.playerId);
-               const initialOffset = getPlayedCardInitialOffset(play.playerId);
-               const isWinningCard = winningPlay && winningPlay.playerId === play.playerId;
-               const pName = players.find(p => p.id === play.playerId)?.name || "Bot";
-               const isRed = play.card.suit === "HEART" || play.card.suit === "DIAMOND";
-               
-               return (
-                 <motion.div
-                   key={play.playerId}
-                   initial={{ scale: 1.6, x: initialOffset.x, y: initialOffset.y, rotate: 0 }}
-                   animate={{
-                     scale: isWinningCard ? 1.25 : 1.0,
-                     x: offset.x,
-                     y: offset.y,
-                     rotate: offset.rotate
-                   }}
-                   transition={{
-                     type: "spring",
-                     stiffness: 110,
-                     damping: 13,
-                     mass: 0.9,
-                     duration: 0.45
-                   }}
-                   className={`absolute ${tableWidthClass} ${tableHeightClass} rounded-xl bg-white border-2 flex flex-col justify-between relative transition-shadow shadow-[0_8px_20px_rgba(0,0,0,0.55)] ${
-                     isWinningCard
-                       ? "border-amber-400 ring-4 ring-amber-500/50 shadow-[0_0_25px_rgba(234,179,8,0.95)] z-10"
-                       : "border-slate-200 z-0"
-                   }`}
-                   style={{ color: isRed ? "#dc2626" : "#020617" }}
-                 >
-                   {/* Card glossy reflection overlay */}
-                   <div className="absolute inset-0 bg-gradient-to-tr from-transparent via-white/15 to-transparent opacity-75 pointer-events-none rounded-xl"
-                        style={{ background: "linear-gradient(135deg, rgba(255,255,255,0.2) 0%, rgba(255,255,255,0) 100%)" }} />
-
-                   <div className="absolute top-1.5 left-1.5 flex flex-col items-center leading-none scale-85 origin-top-left">
-                     <span className="text-xs sm:text-sm font-black text-slate-950">{play.card.rank}</span>
-                     <span className="mt-0.5">{renderSuitIcon(play.card.suit, "w-3 h-3")}</span>
-                   </div>
-                   
-                   <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                     <div className="w-6 h-6 sm:w-8 sm:h-8 opacity-95">
-                       {renderSuitIcon(play.card.suit, "w-full h-full")}
-                     </div>
-                   </div>
-                   
-                   <div className="absolute bottom-1.5 right-1.5 flex flex-col items-center leading-none transform rotate-180 scale-85 origin-bottom-right">
-                     <span className="text-xs sm:text-sm font-black text-slate-950">{play.card.rank}</span>
-                     <span className="mt-0.5">{renderSuitIcon(play.card.suit, "w-3 h-3")}</span>
-                   </div>
-
-                   {isWinningCard ? (
-                     <div className="absolute bottom-[-18px] left-1/2 transform -translate-x-1/2 bg-amber-500 text-slate-950 text-[8px] sm:text-[9px] font-black px-2 py-0.5 rounded-full shadow-lg border border-amber-400 tracking-wider text-center select-none pointer-events-none z-20 whitespace-nowrap animate-bounce">
-                       ✨ WINNER ✨
-                     </div>
-                   ) : (
-                     <div className="absolute bottom-[-18px] left-1/2 transform -translate-x-1/2 bg-slate-950 text-slate-200 border border-slate-800 text-[8px] sm:text-[9px] font-black px-1.5 py-0.5 rounded-full shadow-md max-w-[65px] truncate text-center select-none pointer-events-none z-20">
-                       {pName}
-                     </div>
-                   )}
-                 </motion.div>
-               );
-             })}
-           </div>
-
-           {/* Player Avatars on circles */}
-           {orderedPlayers.map((player, idx) => {
-             const coords = getPolarCoords(idx, N);
-             const isTurn = player.id === activePlayer?.id;
-             const playerBid = bids[player.id];
-             const hasBid = playerBid !== undefined;
-             const playerTricks = tricksWon[player.id] || 0;
-             const isMe = player.id === myPlayerId;
-             
-             const opponentHandSize = hands[player.id]?.length || 0;
-
-             return (
-               <div
-                 key={player.id}
-                 className="absolute transform -translate-x-1/2 -translate-y-1/2 flex flex-col items-center z-15"
+        {/* Table Container wrapper that doesn't hide overflow */}
+        <div className="relative w-[50vh] h-[50vh] max-w-[340px] max-h-[340px] flex justify-center items-center my-4 z-10">
+          {/* Circular Table Felt with Weave Felt Texture */}
+          <div className="w-full h-full rounded-full border-[10px] border-amber-800 shadow-[inset_0_0_60px_rgba(0,0,0,0.92),_0_15px_35px_rgba(0,0,0,0.65),_0_0_35px_rgba(59,130,246,0.3)] ring-4 ring-amber-500/25 relative flex justify-center items-center overflow-hidden"
+               style={{ background: "radial-gradient(circle, #0e3557 0%, #051629 100%)" }}
+          >
+            {/* Felt Weave Texture Overlay */}
+            <div className="absolute inset-0 opacity-[0.12] pointer-events-none"
                  style={{
-                   left: coords.left,
-                   top: coords.top
-                 }}
-               >
-                 <div className="flex items-center gap-1 mb-1">
-                   <span className={`text-[10px] font-bold tracking-wide truncate max-w-[70px] select-none ${isMe ? "text-amber-400 font-extrabold" : "text-slate-300"}`}>
-                     {player.name}
-                   </span>
-                 </div>
+                   backgroundImage: "radial-gradient(circle at 50% 50%, rgba(255,255,255,0.18) 0%, transparent 80%), repeating-linear-gradient(0deg, rgba(0,0,0,0.1) 0px, rgba(0,0,0,0.1) 1px, transparent 1px, transparent 2px), repeating-linear-gradient(90deg, rgba(0,0,0,0.1) 0px, rgba(0,0,0,0.1) 1px, transparent 1px, transparent 2px)",
+                 }} />
 
-                 {/* Pulse ring around active player avatar */}
-                 <div
-                   className={`w-14 h-14 rounded-full flex justify-center items-center relative transition-all duration-300 ${
-                     isTurn
-                       ? "ring-4 ring-emerald-500 shadow-[0_0_18px_rgba(16,185,129,0.85)] bg-emerald-950/30"
-                       : "ring-2 ring-slate-800 bg-slate-900/90"
-                   } ${!player.connected ? "opacity-40" : ""}`}
-                 >
-                   {isTurn && (
-                     <div className="absolute inset-[-4px] rounded-full border-2 border-emerald-500 animate-ping opacity-60 pointer-events-none" />
-                   )}
+            {/* Radial center light source glow */}
+            <div className="absolute w-[180px] h-[180px] rounded-full bg-blue-400/10 blur-[40px] pointer-events-none" />
 
-                   <span className={`text-sm font-extrabold select-none ${isMe ? "text-amber-400 font-black" : "text-slate-200"}`}>
-                     {player.name.substring(0, 2).toUpperCase()}
-                   </span>
+            {/* Deck Stack */}
+            <div className="absolute left-[7%] top-1/2 transform -translate-y-1/2 flex flex-col items-center gap-1 z-20 pointer-events-none select-none">
+              <div className="relative w-8 h-12 sm:w-9 sm:h-13">
+                <div className="absolute top-0 left-0 w-full h-full bg-blue-900 border border-blue-500 rounded-md shadow transform -rotate-6"
+                     style={{ background: "linear-gradient(135deg, #1e3a8a 0%, #0f172a 100%)" }} />
+                <div className="absolute top-0.5 left-0.5 w-full h-full bg-blue-900 border border-blue-500 rounded-md shadow transform rotate-3"
+                     style={{ background: "linear-gradient(135deg, #1e3a8a 0%, #0f172a 100%)" }} />
+                <div className="absolute top-1 left-1 w-full h-full bg-blue-950 border-2 border-blue-400 rounded-md shadow flex items-center justify-center"
+                     style={{ background: "linear-gradient(135deg, #1e3a8a 0%, #0f172a 100%)" }}>
+                  <span className="text-[10px] sm:text-xs text-blue-400 font-bold font-serif">🂠</span>
+                </div>
+              </div>
+              <span className="text-[8px] font-black uppercase text-slate-400 tracking-wider bg-slate-950/80 px-1.5 py-0.5 rounded-full border border-slate-900">
+                {deckSize} Cards
+              </span>
+            </div>
 
-                   {!player.connected && (
-                     <span className="absolute -top-0.5 -right-0.5 w-3 h-3 bg-red-500 border-2 border-slate-950 rounded-full shadow" />
-                   )}
-                   {player.connected && isTurn && (
-                     <span className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 bg-emerald-500 border-2 border-slate-950 rounded-full shadow" />
-                   )}
-                 </div>
+            {/* Trump Card Showcase */}
+            <div className="absolute right-[7%] top-1/2 transform -translate-y-1/2 flex flex-col items-center gap-1 z-20 pointer-events-none select-none">
+              <span className="text-[8px] font-black uppercase text-amber-500 tracking-wider bg-slate-950/80 px-1.5 py-0.5 rounded-full border border-slate-900">
+                Trump
+              </span>
+              {renderTrumpCard(trump, false)}
+            </div>
 
-                 {/* Score text */}
-                 <div className="bg-slate-950/80 border border-slate-850 px-2 py-0.5 rounded-full text-[9px] font-black tracking-wider text-slate-400 mt-1 shadow-sm uppercase">
-                   {playerTricks} / {hasBid ? playerBid : "?"}
-                 </div>
+            {/* Card pile with spring landing and shrink offset */}
+            <div className="w-[150px] h-[150px] rounded-full bg-slate-950/5 relative flex justify-center items-center pointer-events-none">
+              {playedCards.map((play) => {
+                const offset = getPlayedCardOffset(play.playerId);
+                const initialOffset = getPlayedCardInitialOffset(play.playerId);
+                const isWinningCard = winningPlay && winningPlay.playerId === play.playerId;
+                const pName = players.find(p => p.id === play.playerId)?.name || "Bot";
+                const isRed = play.card.suit === "HEART" || play.card.suit === "DIAMOND";
+                
+                return (
+                  <motion.div
+                    key={play.playerId}
+                    initial={{ scale: 1.6, x: initialOffset.x, y: initialOffset.y, rotate: 0 }}
+                    animate={{
+                      scale: isWinningCard ? 1.2 : 0.95,
+                      x: offset.x,
+                      y: offset.y,
+                      rotate: offset.rotate
+                    }}
+                    transition={{
+                      type: "spring",
+                      stiffness: 110,
+                      damping: 13,
+                      mass: 0.9,
+                      duration: 0.45
+                    }}
+                    className={`absolute ${tableWidthClass} ${tableHeightClass} rounded-xl bg-white border-2 flex flex-col justify-between relative transition-shadow shadow-[0_8px_20px_rgba(0,0,0,0.55)] ${
+                      isWinningCard
+                        ? "border-amber-400 ring-4 ring-amber-500/50 shadow-[0_0_25px_rgba(234,179,8,0.95)] z-10"
+                        : "border-slate-200 z-0"
+                    }`}
+                    style={{ color: isRed ? "#dc2626" : "#020617" }}
+                  >
+                    {/* Card glossy reflection overlay */}
+                    <div className="absolute inset-0 bg-gradient-to-tr from-transparent via-white/15 to-transparent opacity-75 pointer-events-none rounded-xl"
+                         style={{ background: "linear-gradient(135deg, rgba(255,255,255,0.2) 0%, rgba(255,255,255,0) 100%)" }} />
 
-                 {!isMe && opponentHandSize > 0 && (
-                   <div className="absolute top-[-25px] flex -space-x-1 justify-center pointer-events-none opacity-80 scale-75">
-                     {Array.from({ length: opponentHandSize }).map((_, cIdx) => (
-                       <div
-                         key={cIdx}
-                         className="w-4 h-6 bg-blue-900 border border-blue-500 rounded-[2px] shadow transform rotate-[-10deg]"
-                         style={{
-                           background: "linear-gradient(135deg, #1e3a8a 0%, #0f172a 100%)"
-                         }}
-                       />
-                     ))}
-                   </div>
-                 )}
-               </div>
-             );
-           })}
+                    <div className="absolute top-1.5 left-1.5 flex flex-col items-center leading-none scale-85 origin-top-left">
+                      <span className="text-xs sm:text-sm font-black text-slate-950">{play.card.rank}</span>
+                      <span className="mt-0.5">{renderSuitIcon(play.card.suit, "w-3 h-3")}</span>
+                    </div>
+                    
+                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                      <div className="w-6 h-6 sm:w-8 sm:h-8 opacity-95">
+                        {renderSuitIcon(play.card.suit, "w-full h-full")}
+                      </div>
+                    </div>
+                    
+                    <div className="absolute bottom-1.5 right-1.5 flex flex-col items-center leading-none transform rotate-180 scale-85 origin-bottom-right">
+                      <span className="text-xs sm:text-sm font-black text-slate-950">{play.card.rank}</span>
+                      <span className="mt-0.5">{renderSuitIcon(play.card.suit, "w-3 h-3")}</span>
+                    </div>
+
+                    {isWinningCard ? (
+                      <div className="absolute bottom-[-18px] left-1/2 transform -translate-x-1/2 bg-amber-500 text-slate-950 text-[8px] sm:text-[9px] font-black px-2 py-0.5 rounded-full shadow-lg border border-amber-400 tracking-wider text-center select-none pointer-events-none z-20 whitespace-nowrap animate-bounce">
+                        ✨ WINNER ✨
+                      </div>
+                    ) : (
+                      <div className="absolute bottom-[-18px] left-1/2 transform -translate-x-1/2 bg-slate-950 text-slate-200 border border-slate-800 text-[8px] sm:text-[9px] font-black px-1.5 py-0.5 rounded-full shadow-md max-w-[65px] truncate text-center select-none pointer-events-none z-20">
+                        {pName}
+                      </div>
+                    )}
+                  </motion.div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Player Avatars on circles outside the table felt */}
+          {orderedPlayers.map((player, idx) => {
+            const coords = getPolarCoords(idx, N);
+            const isTurn = player.id === activePlayer?.id;
+            const playerBid = bids[player.id];
+            const hasBid = playerBid !== undefined;
+            const playerTricks = tricksWon[player.id] || 0;
+            const isMe = player.id === myPlayerId;
+            
+            const opponentHandSize = hands[player.id]?.length || 0;
+
+            return (
+              <div
+                key={player.id}
+                className="absolute transform -translate-x-1/2 -translate-y-1/2 flex flex-col items-center z-15"
+                style={{
+                  left: coords.left,
+                  top: coords.top
+                }}
+              >
+                <div className="flex items-center gap-1 mb-1">
+                  <span className={`text-[10px] font-bold tracking-wide truncate max-w-[70px] select-none ${isMe ? "text-amber-400 font-extrabold" : "text-slate-300"}`}>
+                    {player.name}
+                  </span>
+                </div>
+
+                {/* Pulse ring around active player avatar */}
+                <div
+                  className={`w-11 h-11 rounded-full flex justify-center items-center relative transition-all duration-300 ${
+                    isTurn
+                      ? "ring-4 ring-emerald-500 shadow-[0_0_18px_rgba(16,185,129,0.85)] bg-emerald-950/30"
+                      : "ring-2 ring-slate-800 bg-slate-900/90"
+                  } ${!player.connected ? "opacity-40" : ""}`}
+                >
+                  {isTurn && (
+                    <div className="absolute inset-[-4px] rounded-full border-2 border-emerald-500 animate-ping opacity-60 pointer-events-none" />
+                  )}
+
+                  <span className={`text-xs font-extrabold select-none ${isMe ? "text-amber-400 font-black" : "text-slate-200"}`}>
+                    {player.name.substring(0, 2).toUpperCase()}
+                  </span>
+
+                  {!player.connected && (
+                    <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-red-500 border border-slate-950 rounded-full shadow" />
+                  )}
+                  {player.connected && isTurn && (
+                    <span className="absolute -top-0.5 -right-0.5 w-3 h-3 bg-emerald-500 border border-slate-950 rounded-full shadow" />
+                  )}
+                </div>
+
+                {/* Score text */}
+                <div className="bg-slate-950/80 border border-slate-850 px-2 py-0.5 rounded-full text-[8px] font-black tracking-wider text-slate-400 mt-1 shadow-sm uppercase">
+                  {playerTricks} / {hasBid ? playerBid : "?"}
+                </div>
+
+                {!isMe && opponentHandSize > 0 && (
+                  <div className="absolute top-[-20px] flex -space-x-1 justify-center pointer-events-none opacity-80 scale-65">
+                    {Array.from({ length: opponentHandSize }).map((_, cIdx) => (
+                      <div
+                        key={cIdx}
+                        className="w-3.5 h-5 bg-blue-900 border border-blue-500 rounded-[2px] shadow transform rotate-[-10deg]"
+                        style={{
+                          background: "linear-gradient(135deg, #1e3a8a 0%, #0f172a 100%)"
+                        }}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       </div>
 
@@ -767,42 +846,59 @@ export default function GameBoard({ onNavigate }) {
             // 3D deals with spring bounce impact and tilt
             const targetY = playable ? fan.y - 24 : fan.y;
             const isRed = card.suit === "HEART" || card.suit === "DIAMOND";
-            const randomOffset = ((card.value * 7 + card.suit.charCodeAt(0)) % 7) - 3; // Stable tilt -3 to +3
+            const randomOffset = ((card.value * 7 + card.suit.charCodeAt(0)) % 7) - 3;
+
+            const cardAnimationProps = isDealAnimating ? {
+              initial: { x: -280, y: -160, rotateY: 180, scale: 0.4, rotate: 0, opacity: 0 },
+              animate: {
+                x: fan.x,
+                y: targetY,
+                rotateY: 0,
+                scale: playable ? 1.08 : 1.0,
+                rotate: fan.rotate + randomOffset,
+                opacity: 1
+              },
+              transition: {
+                type: "spring",
+                stiffness: 90,
+                damping: 13,
+                mass: 0.9,
+                delay: idx * 0.08,
+                rotateY: { duration: 0.4, ease: "easeInOut", delay: idx * 0.08 + 0.15 }
+              }
+            } : {
+              initial: false,
+              animate: {
+                x: fan.x,
+                y: targetY,
+                rotateY: 0,
+                scale: playable ? 1.08 : 1.0,
+                rotate: fan.rotate + randomOffset,
+                opacity: 1
+              },
+              transition: {
+                type: "spring",
+                stiffness: 120,
+                damping: 15,
+                mass: 0.8
+              }
+            };
 
             return (
               <motion.button
                 key={`${card.suit}-${card.rank}`}
                 onClick={() => playable && handlePlayCard(card)}
                 disabled={isLocked || phase !== "playing"}
-                initial={{ x: -280, y: -160, rotateY: 180, scale: 0.4, rotate: 0, opacity: 0 }}
-                animate={{
-                  x: fan.x,
-                  y: targetY,
-                  rotateY: 0,
-                  scale: playable ? [1.1, 1.13, 1.1] : 1.0,
-                  rotate: playable 
-                    ? [fan.rotate + randomOffset, fan.rotate + randomOffset - 1, fan.rotate + randomOffset + 1, fan.rotate + randomOffset] 
-                    : fan.rotate + randomOffset,
-                  opacity: 1
-                }}
+                {...cardAnimationProps}
                 whileHover={playable ? {
                   y: targetY - 30,
                   scale: 1.18,
                   zIndex: 100,
                   transition: { duration: 0.2, ease: "easeOut" }
                 } : {}}
-                transition={{
-                  scale: playable ? { repeat: Infinity, duration: 1.8, ease: "easeInOut" } : { duration: 0.25 },
-                  rotate: playable ? { repeat: Infinity, duration: 2.2, ease: "easeInOut" } : { duration: 0.25 },
-                  x: { type: "spring", stiffness: 90, damping: 13, mass: 0.9 },
-                  y: { type: "spring", stiffness: 90, damping: 13, mass: 0.9 },
-                  rotateY: { duration: 0.4, ease: "easeInOut", delay: idx * 0.08 + 0.15 },
-                  opacity: { duration: 0.2 },
-                  delay: idx * 0.08
-                }}
                 className={`absolute bottom-6 left-1/2 -translate-x-1/2 ${widthClass} ${heightClass} rounded-xl shadow-xl border flex flex-col justify-between origin-bottom cursor-pointer select-none transition-all duration-300 transform-style-3d ${
                   playable
-                    ? "border-emerald-400 ring-2 ring-emerald-500/20 shadow-[0_0_20px_rgba(34,197,94,0.65)] hover:shadow-[0_0_25px_rgba(34,197,94,0.85)] bg-white"
+                    ? "border-emerald-400 ring-2 ring-emerald-500/20 shadow-[0_0_20px_rgba(34,197,94,0.65)] bg-white playable-card-pulse"
                     : isLocked
                     ? "opacity-35 grayscale cursor-not-allowed border-slate-300 bg-white pointer-events-none"
                     : "border-slate-250 bg-white"
